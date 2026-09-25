@@ -87,6 +87,15 @@ PG_EXCLUDE_DATABASES=banco_legado
 PG_EXCLUDE_SCHEMAS=topology,tiger
 ```
 
+Tabelas particionadas e suas partições filhas aparecem como objetos independentes
+na descoberta; selecionar a tabela pai já lê todas as linhas de todas as
+partições. Para não migrar/validar o mesmo dado duas vezes (uma pela tabela
+pai, outra por cada partição filha), defina:
+
+```dotenv
+PG_SKIP_PARTITION_CHILDREN=true
+```
+
 Para usar o comportamento manual anterior, configure:
 
 ```dotenv
@@ -227,7 +236,8 @@ de checkpoint são resolvidos em relação ao diretório desse arquivo.
 A descoberta inclui tabelas, partições, views, views materializadas e tabelas
 externas. Objetos sem permissão não desaparecem do inventário: sua leitura
 falha explicitamente. Pais particionados e suas partições são objetos separados;
-não some suas contagens como se fossem conjuntos independentes.
+não some suas contagens como se fossem conjuntos independentes. Use
+`PG_SKIP_PARTITION_CHILDREN=true` para migrar/validar somente a tabela pai.
 
 Colisões de nomes normalizados interrompem o banco afetado antes da carga.
 Colisões entre nomes de datasets interrompem a execução antes de qualquer carga.

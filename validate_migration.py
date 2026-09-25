@@ -26,7 +26,7 @@ from google.api_core.exceptions import NotFound
 from google.cloud import bigquery, storage
 from psycopg2 import sql
 from migration_common import OBJECTS_SQL, bq_identifier, closing_connection, validate_bq_id
-from migrate import TableSpec, bq_type, get_columns, csv_values
+from migrate import TableSpec, bq_type, csv_values, env_bool, get_columns
 
 
 LOG = logging.getLogger("migration-validator")
@@ -203,6 +203,7 @@ def list_objects(
         params.append(excluded)
     query += " ORDER BY n.nspname, c.relname"
 
+    skip_partition_children = env_bool("PG_SKIP_PARTITION_CHILDREN")
     requested = set(selected_tables or [])
     results: List[Tuple[str, str, str]] = []
     with closing_connection(psycopg2.connect, **pg_params(database)) as conn:
@@ -212,7 +213,9 @@ def list_objects(
             missing_schemas = set(selected_schemas or []) - set(excluded) - {row[0] for row in objects}
             if missing_schemas:
                 raise ValueError("Schemas sem objetos encontrados: " + ", ".join(sorted(missing_schemas)))
-            for schema_name, table_name, object_type in objects:
+            for schema_name, table_name, object_type, is_partition in objects:
+                if skip_partition_children and is_partition:
+                    continue
                 if requested and table_name not in requested and f"{schema_name}.{table_name}" not in requested:
                     continue
                 results.append((schema_name, table_name, object_type))
@@ -479,6 +482,9 @@ def append_parquet_to_bigquery(
     job_config = bigquery.LoadJobConfig(
         source_format=bigquery.SourceFormat.PARQUET,
         write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
+        # Permite que novos campos de ValidationRow sejam adicionados à tabela de
+        # histórico sem quebrar o append de execuções anteriores.
+        schema_update_options=[bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION],
     )
     with local_path.open("rb") as handle:
         job = client.load_table_from_file(handle, table_ref, job_config=job_config)

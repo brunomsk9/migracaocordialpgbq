@@ -6,7 +6,8 @@ OBJECTS_SQL = """
     SELECT n.nspname, c.relname,
            CASE c.relkind WHEN 'm' THEN 'MATERIALIZED VIEW'
                 WHEN 'v' THEN 'VIEW' WHEN 'f' THEN 'FOREIGN'
-                WHEN 'p' THEN 'PARTITIONED TABLE' ELSE 'BASE TABLE' END
+                WHEN 'p' THEN 'PARTITIONED TABLE' ELSE 'BASE TABLE' END,
+           c.relispartition
       FROM pg_catalog.pg_class c
       JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
      WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f')

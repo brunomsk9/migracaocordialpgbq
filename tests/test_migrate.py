@@ -1,6 +1,8 @@
+import os
 import unittest
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 from migrate import (
     Column,
@@ -12,6 +14,7 @@ from migrate import (
     discover_tables,
     expand_table_specs,
     parse_tables,
+    table_sizes,
     CheckpointStore,
     run_with_retry,
 )
@@ -71,12 +74,19 @@ class MappingTests(unittest.TestCase):
     def test_schema_wildcard_expansion(self):
         specs = parse_tables("dm_analise.*")
         expanded = expand_table_specs(
-            FakeConnection([("tbl_acidentes",), ("vw_resumo",)]), specs
+            FakeConnection([("tbl_acidentes", False), ("vw_resumo", False)]), specs
         )
         self.assertEqual(
             [item.destination_table for item in expanded],
             ["dm_analise_tbl_acidentes", "dm_analise_vw_resumo"],
         )
+
+    def test_schema_wildcard_can_skip_partition_children(self):
+        specs = parse_tables("dm_analise.*")
+        conn = FakeConnection([("medicoes", False), ("medicoes_2024", True)])
+        with patch.dict(os.environ, {"PG_SKIP_PARTITION_CHILDREN": "true"}, clear=False):
+            expanded = expand_table_specs(conn, specs)
+        self.assertEqual([item.source_table for item in expanded], ["medicoes"])
 
     def test_dataset_uses_database_name(self):
         self.assertEqual(dataset_for_database("2304400_fo"), "2304400_fo")
@@ -90,16 +100,40 @@ class MappingTests(unittest.TestCase):
 
     def test_table_discovery_ignores_system_schemas(self):
         conn = FakeConnection([
-            ("information_schema", "tables"),
-            ("pg_catalog", "pg_class"),
-            ("public", "clientes"),
-            ("dm_analise", "tbl_acidentes"),
+            ("information_schema", "tables", False),
+            ("pg_catalog", "pg_class", False),
+            ("public", "clientes", False),
+            ("dm_analise", "tbl_acidentes", False),
         ])
         tables = discover_tables(conn)
         self.assertEqual(
             [(t.source_schema, t.source_table, t.destination_table) for t in tables],
             [("public", "clientes", "public_clientes"), ("dm_analise", "tbl_acidentes", "dm_analise_tbl_acidentes")],
         )
+
+    def test_table_discovery_can_skip_partition_children(self):
+        conn = FakeConnection([
+            ("dm_analise", "medicoes", False),
+            ("dm_analise", "medicoes_2024", True),
+        ])
+        with patch.dict(os.environ, {"PG_SKIP_PARTITION_CHILDREN": "true"}, clear=False):
+            tables = discover_tables(conn)
+        self.assertEqual([t.source_table for t in tables], ["medicoes"])
+
+    def test_table_sizes_batches_single_query(self):
+        t1 = parse_tables("public.a")[0]
+        t2 = parse_tables("public.b")[0]
+        conn = FakeConnection([("public", "a", 100), ("public", "b", 0)])
+        sizes = table_sizes(conn, [t1, t2])
+        self.assertEqual(sizes[t1], 100)
+        self.assertEqual(sizes[t2], 0)
+
+    def test_table_sizes_defaults_missing_table_to_zero(self):
+        t1 = parse_tables("public.a")[0]
+        self.assertEqual(table_sizes(FakeConnection([]), [t1])[t1], 0)
+
+    def test_table_sizes_empty_list_skips_query(self):
+        self.assertEqual(table_sizes(FakeConnection([]), []), {})
 
     def test_checkpoint_only_marks_completed_table(self):
         with tempfile.TemporaryDirectory() as directory:
