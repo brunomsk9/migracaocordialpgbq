@@ -1,0 +1,8 @@
+{
+  "databases": {
+    "banco-origem": "dataset_destino"
+  },
+  "tables": {
+    "banco-origem.public.tabela_origem": "tabela_destino"
+  }
+}

@@ -1,0 +1,38 @@
+# Configurações reais e credenciais (somente exemplos são versionados)
+.env
+.env.*
+!.env.example
+!.env.validacao.example
+env.txt
+config/local/
+credentials/
+secrets/
+*credentials*.json
+*service-account*.json
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+.venv*/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Artefatos e estado de execução
+dist/
+state/
+logs/
+validation/
+*.parquet
+*.log
+*.pid
+*.tmp
+.migration-checkpoint*
+validation-mapping.json
+
+# Metadados locais das ferramentas
+.codex/
+.agents/
