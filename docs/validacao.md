@@ -4,6 +4,12 @@ O `validate_migration.py` compara cada tabela/view do PostgreSQL com a tabela
 correspondente no BigQuery. O resultado é gravado em Parquet e pode ser anexado
 automaticamente a uma tabela do BigQuery para uso no Looker ou Looker Studio.
 
+## Quero executar apenas a validação
+
+Siga o [guia da VM](guia-vm.md), especialmente os passos 4 a 6. Ele mostra como
+configurar e executar `validate_migration.py` com relatório somente local, sem
+rodar a migração. Também explica como instalar o Git e atualizar o projeto.
+
 ## O que é validado
 
 - quantidade de registros na origem e no destino;
@@ -34,8 +40,10 @@ cd /opt/migracao
 Copie o exemplo e ajuste sem remover as configurações existentes:
 
 ```bash
-cp /opt/migracao/config/examples/.env.validacao.example /opt/migracao/.env.validacao
-chmod 640 /opt/migracao/.env.validacao
+if ! sudo test -f /opt/migracao/.env.validacao; then
+  sudo install -o root -g postgres -m 640 \
+    /opt/migracao/config/examples/.env.validacao.example /opt/migracao/.env.validacao
+fi
 ```
 
 Campos essenciais:

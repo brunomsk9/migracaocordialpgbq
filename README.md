@@ -2,6 +2,12 @@
 
 Migra tabelas ou views do PostgreSQL para o BigQuery, preservando os tipos compatíveis e convertendo colunas PostGIS `geometry`/`geography` para o tipo nativo `GEOGRAPHY`.
 
+## Comece por aqui na VM
+
+Leia o [guia passo a passo para instalar Git, atualizar /opt/migracao e rodar somente a validação](docs/guia-vm.md).
+Ele inclui backup da instalação manual, configuração, comandos prontos e leitura
+dos resultados. Para conferir tabelas já migradas, execute `validate_migration.py`.
+
 ## Organização do projeto
 
 - [Validação e relatório](docs/validacao.md)
@@ -101,10 +107,10 @@ O destino padrão de `public.clientes` é `public_clientes`; o alias explícito 
 
 ## Credencial do Google Cloud
 
-Em uma VM do Google Cloud com Service Account configurada, deixe vazio:
+Em uma VM do Google Cloud com Service Account configurada, remova ou comente a variável:
 
 ```dotenv
-GOOGLE_APPLICATION_CREDENTIALS=
+# GOOGLE_APPLICATION_CREDENTIALS não deve ser definida neste caso
 ```
 
 Fora do Google Cloud, informe o caminho absoluto do JSON da conta de serviço:

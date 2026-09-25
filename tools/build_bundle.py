@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FILES = (
     "migrate.py", "validate_migration.py", "migration_common.py",
     "requirements.txt", "requirements-validation.txt", "README.md",
-    "docs/validacao.md", "docs/revisao-2026-09-25.md", "docs/desenvolvimento.md",
+    "docs/guia-vm.md", "docs/validacao.md", "docs/revisao-2026-09-25.md", "docs/desenvolvimento.md",
     "config/examples/.env.example", "config/examples/.env.validacao.example",
     "config/examples/validation-mapping.example.json",
     "tests/__init__.py", "tests/test_migrate.py", "tests/test_validation.py",
