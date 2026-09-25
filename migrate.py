@@ -29,34 +29,26 @@ from psycopg2.extras import RealDictCursor
 LOG = logging.getLogger("pg-postgis-bq")
 
 
+# Chaves no formato pg_type.typname (nome interno curto), o mesmo valor que
+# COLUMNS_SQL sempre expõe em Column.udt_name — não os nomes longos do
+# information_schema (ex.: "character varying", "smallint"), que nunca chegam
+# até aqui e por isso não devem ser adicionados de volta.
 PG_TO_BQ = {
-    "smallint": "INTEGER",
-    "integer": "INTEGER",
-    "bigint": "INTEGER",
     "int2": "INTEGER",
     "int4": "INTEGER",
     "int8": "INTEGER",
-    "real": "FLOAT",
-    "double precision": "FLOAT",
     "float4": "FLOAT",
     "float8": "FLOAT",
     "numeric": "NUMERIC",
-    "decimal": "NUMERIC",
     "bool": "BOOLEAN",
-    "boolean": "BOOLEAN",
     "date": "DATE",
-    "timestamp without time zone": "DATETIME",
-    "timestamp with time zone": "TIMESTAMP",
-    "time without time zone": "TIME",
     "timestamp": "DATETIME",
     "timestamptz": "TIMESTAMP",
     "time": "TIME",
     "bpchar": "STRING",
-    "character varying": "STRING",
-    "character": "STRING",
-    "text": "STRING",
     "varchar": "STRING",
     "char": "STRING",
+    "text": "STRING",
     "uuid": "STRING",
     "json": "JSON",
     "jsonb": "JSON",
@@ -153,16 +145,22 @@ def parse_tables(raw: str) -> list[TableSpec]:
 
 def expand_table_specs(conn, specs: list[TableSpec]) -> list[TableSpec]:
     """Expande schema.* para todas as tabelas e views visíveis do schema."""
+    skip_partition_children = env_bool("PG_SKIP_PARTITION_CHILDREN")
     expanded: list[TableSpec] = []
     for spec in specs:
         if not spec.is_schema_wildcard:
             expanded.append(spec)
             continue
 
-        query = "SELECT relname FROM (" + OBJECTS_SQL + ") objects(nspname, relname, kind) WHERE nspname = %s ORDER BY relname"
+        query = (
+            "SELECT relname, relispartition FROM (" + OBJECTS_SQL
+            + ") objects(nspname, relname, kind, relispartition) WHERE nspname = %s ORDER BY relname"
+        )
         with conn.cursor() as cur:
             cur.execute(query, (spec.source_schema,))
             rows = cur.fetchall()
+        if skip_partition_children:
+            rows = [row for row in rows if not row[1]]
         if not rows:
             raise ValueError(
                 f"Nenhuma tabela ou view visível encontrada no schema: {spec.source_schema}"
@@ -194,8 +192,8 @@ def postgres_connection(database: str | None = None):
     return psycopg2.connect(**params)
 
 
-def discover_databases(conn) -> list[str]:
-    includes = set(csv_values(os.getenv("PG_DATABASES")))
+def discover_databases(conn, include_names: list[str] | None = None) -> list[str]:
+    includes = set(include_names if include_names is not None else csv_values(os.getenv("PG_DATABASES")))
     excludes = SYSTEM_DATABASES | set(csv_values(os.getenv("PG_EXCLUDE_DATABASES")))
     query = """
         SELECT datname
@@ -213,41 +211,52 @@ def discover_databases(conn) -> list[str]:
     return [name for name in names if name not in excludes and (not includes or name in includes)]
 
 
-def discover_tables(conn) -> list[TableSpec]:
-    includes = set(csv_values(os.getenv("PG_SCHEMAS")))
+def discover_tables(conn, include_schemas: list[str] | None = None) -> list[TableSpec]:
+    includes = set(include_schemas if include_schemas is not None else csv_values(os.getenv("PG_SCHEMAS")))
     excludes = SYSTEM_SCHEMAS | set(csv_values(os.getenv("PG_EXCLUDE_SCHEMAS")))
-    query = "SELECT nspname, relname FROM (" + OBJECTS_SQL + ") objects(nspname, relname, kind) ORDER BY nspname, relname"
+    skip_partition_children = env_bool("PG_SKIP_PARTITION_CHILDREN")
+    query = (
+        "SELECT nspname, relname, relispartition FROM (" + OBJECTS_SQL
+        + ") objects(nspname, relname, kind, relispartition) ORDER BY nspname, relname"
+    )
     with conn.cursor() as cur:
         cur.execute(query)
         rows = cur.fetchall()
-    missing_schemas = includes - excludes - {schema for schema, _ in rows}
+    missing_schemas = includes - excludes - {schema for schema, _, _ in rows}
     if missing_schemas:
         raise ValueError("Schemas sem objetos encontrados: " + ", ".join(sorted(missing_schemas)))
     return [
         TableSpec(schema, table, default_destination_table(schema, table))
-        for schema, table in rows
+        for schema, table, is_partition in rows
         if schema not in excludes
         and not schema.startswith("pg_temp_")
         and not schema.startswith("pg_toast_temp_")
         and (not includes or schema in includes)
+        and not (skip_partition_children and is_partition)
     ]
 
 
-def table_size_bytes(conn, table: TableSpec) -> int:
-    """Retorna o tamanho físico; views e objetos sem storage retornam zero."""
-    query = """
-        SELECT CASE
-                 WHEN c.relkind IN ('r', 'm', 'p') THEN pg_total_relation_size(c.oid)
-                 ELSE 0
-               END
-          FROM pg_class c
-          JOIN pg_namespace n ON n.oid = c.relnamespace
-         WHERE n.nspname = %s AND c.relname = %s
+def table_sizes(conn, tables: list[TableSpec]) -> dict[TableSpec, int]:
+    """Tamanho físico de todas as tabelas em uma única consulta.
+
+    Views e objetos sem storage valem zero; uma consulta por tabela não
+    escala em bancos com milhares de objetos (ver docs/guia-vm.md).
     """
+    if not tables:
+        return {}
+    query = """
+        SELECT want.nspname, want.relname,
+               CASE WHEN c.relkind IN ('r', 'm', 'p') THEN pg_total_relation_size(c.oid) ELSE 0 END
+          FROM unnest(%s::text[], %s::text[]) AS want(nspname, relname)
+          JOIN pg_namespace n ON n.nspname = want.nspname
+          JOIN pg_class c ON c.relnamespace = n.oid AND c.relname = want.relname
+    """
+    schemas = [table.source_schema for table in tables]
+    names = [table.source_table for table in tables]
     with conn.cursor() as cur:
-        cur.execute(query, (table.source_schema, table.source_table))
-        row = cur.fetchone()
-    return int(row[0]) if row else 0
+        cur.execute(query, (schemas, names))
+        found = {(schema, name): int(size) for schema, name, size in cur.fetchall()}
+    return {table: found.get((table.source_schema, table.source_table), 0) for table in tables}
 
 
 def get_columns(conn, table: TableSpec) -> list[Column]:
@@ -273,8 +282,7 @@ def get_columns(conn, table: TableSpec) -> list[Column]:
 def bq_type(column: Column) -> str:
     if column.data_type == "ARRAY":
         return "STRING"
-    key = column.udt_name if column.udt_name in PG_TO_BQ else column.data_type
-    mapped = PG_TO_BQ.get(key)
+    mapped = PG_TO_BQ.get(column.udt_name)
     if not mapped:
         LOG.warning("Tipo PostgreSQL %s (%s) convertido para STRING", column.data_type, column.name)
         return "STRING"
@@ -558,15 +566,13 @@ def main() -> int:
         parser.error("pausas e tentativas não podem ser negativas")
 
     location = os.getenv("BQ_LOCATION", "US")
-    if args.databases:
-        os.environ["PG_DATABASES"] = args.databases
-    if args.schemas:
-        os.environ["PG_SCHEMAS"] = args.schemas
+    databases_override = csv_values(args.databases) if args.databases else None
+    schemas_override = csv_values(args.schemas) if args.schemas else None
 
     automatic = env_bool("AUTO_DISCOVER", True) and not args.tables
     if automatic:
         with closing_connection(lambda: postgres_connection(os.getenv("PG_ADMIN_DATABASE", "postgres"))) as admin_conn:
-            databases = discover_databases(admin_conn)
+            databases = discover_databases(admin_conn, databases_override)
     else:
         databases = [required_env("PG_DATABASE")]
     if not databases:
@@ -600,12 +606,12 @@ def main() -> int:
                     with conn.cursor() as timeout_cur:
                         timeout_cur.execute("SET statement_timeout = %s", (statement_timeout,))
                 if automatic:
-                    tables = discover_tables(conn)
+                    tables = discover_tables(conn, schemas_override)
                 else:
                     tables = expand_table_specs(conn, parse_tables(args.tables or required_env("PG_TABLES")))
                 tables = list(dict.fromkeys(tables))
                 reject_collisions(((t.source_schema, t.source_table), t.destination_table) for t in tables)
-                sizes = {table: table_size_bytes(conn, table) for table in tables}
+                sizes = table_sizes(conn, tables)
                 if args.table_order == "smallest":
                     tables.sort(key=lambda item: (sizes[item], item.source_schema, item.source_table))
                 elif args.table_order == "largest":
@@ -670,4 +676,11 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except KeyboardInterrupt:
+        LOG.error("Migração interrompida")
+        raise SystemExit(130)
+    except Exception as exc:
+        LOG.exception("Falha fatal: %s", exc)
+        raise SystemExit(1)

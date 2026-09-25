@@ -157,6 +157,16 @@ class RegressionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             v.source_count(connection, 'public', 't', 'metadata')
 
+    @patch.object(v.psycopg2, 'connect')
+    def test_list_objects_can_skip_partition_children(self, connect):
+        connect.return_value.cursor.return_value.__enter__.return_value.fetchall.return_value = [
+            ('dm_analise', 'medicoes', 'BASE TABLE', False),
+            ('dm_analise', 'medicoes_2024', 'BASE TABLE', True),
+        ]
+        with patch.dict(os.environ, {'PG_SKIP_PARTITION_CHILDREN': 'true'}, clear=False):
+            objects = v.list_objects('db', None, None)
+        self.assertEqual([table for _, table, _ in objects], ['medicoes'])
+
     def test_mapping_accepts_explicit_underscores(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'mapping.json'
@@ -178,6 +188,32 @@ class RegressionTests(unittest.TestCase):
         rows = write.call_args.args[0]
         self.assertEqual([row.source_database for row in rows], ['offline', 'online'])
         validate.assert_called_once()
+
+    @patch.object(m, 'migrate_table')
+    @patch.object(m, 'table_sizes')
+    @patch.object(m, 'discover_tables')
+    @patch.object(m, 'discover_databases', return_value=['offline', 'online'])
+    @patch.object(m, 'postgres_connection')
+    @patch.object(m.bigquery, 'Client')
+    @patch.dict(os.environ, {'BQ_PROJECT': 'project', 'AUTO_DISCOVER': 'true'}, clear=True)
+    def test_migration_database_failure_keeps_other_database_running(
+        self, bq_client_cls, postgres_connection, discover_databases, discover_tables, table_sizes, migrate_table
+    ):
+        table = m.TableSpec('public', 't', 'public_t')
+        discover_tables.side_effect = [RuntimeError('conexão perdida'), [table]]
+        table_sizes.return_value = {table: 0}
+        migrate_table.return_value = 5
+        postgres_connection.return_value = MagicMock()
+        bq_client_cls.return_value = MagicMock(project='project')
+
+        with tempfile.TemporaryDirectory() as tmp:
+            checkpoint = str(Path(tmp) / 'checkpoint.json')
+            with patch('sys.argv', ['migrate.py', '--env-file', '/tmp/nonexistent-review-env',
+                                     '--checkpoint', checkpoint]):
+                self.assertEqual(m.main(), 1)
+
+        self.assertEqual(discover_tables.call_count, 2)
+        migrate_table.assert_called_once()
 
 
 if __name__ == '__main__':
