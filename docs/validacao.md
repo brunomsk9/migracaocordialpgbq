@@ -204,7 +204,10 @@ VALIDATION_MAPPING_FILE=/opt/migracao/validation-mapping.json
   `source_object_type=DATABASE`; os demais bancos continuam sendo validados.
 - Tabelas pedidas em `--tables` que não forem encontradas geram erro de inventário,
   em vez de desaparecerem silenciosamente do relatório daquele banco.
-- A descoberta inclui views materializadas, partições e tabelas externas.
+- A descoberta inclui views materializadas, partições e tabelas externas. A
+  tabela particionada pai já contém as linhas de todas as partições; defina
+  `PG_SKIP_PARTITION_CHILDREN=true` para validar somente o pai e não contar
+  cada partição filha como um objeto separado.
 - `PG_DATABASES`, `PG_SCHEMAS` e os filtros `PG_EXCLUDE_*` também são considerados.
   Argumentos de bancos/schemas na linha de comando substituem suas listas de inclusão.
 - Um destino ausente é registrado sem executar `COUNT(*)` na origem. Nesse caso,
@@ -223,6 +226,9 @@ VALIDATION_MAPPING_FILE=/opt/migracao/validation-mapping.json
   todas as tabelas estiverem ausentes. Contagens grandes não passam por float.
 - Aliases manuais (`PG_TABLES=origem:alias`) e `BQ_DATASET` precisam ser refletidos
   no JSON de mapping; o validador usa o mapeamento automático por padrão.
+- O append à tabela de histórico do BigQuery (`VALIDATION_BQ_TABLE`) permite adição
+  automática de coluna, para que uma futura coluna nova no relatório não quebre o
+  append das execuções seguintes contra o histórico já existente.
 
 Para executar apenas a comparação local, deixe `VALIDATION_BQ_TABLE` e
 `VALIDATION_GCS_URI` vazios. Para operação automatizada, use sempre

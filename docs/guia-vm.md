@@ -189,6 +189,7 @@ PG_DATABASES=
 PG_SCHEMAS=
 PG_EXCLUDE_DATABASES=
 PG_EXCLUDE_SCHEMAS=
+PG_SKIP_PARTITION_CHILDREN=false
 VALIDATION_COUNT_MODE=exact
 VALIDATION_OUTPUT_DIR=/opt/migracao/validation
 VALIDATION_BQ_TABLE=
@@ -203,6 +204,9 @@ PostgreSQL, execute uma rodada por porta, com arquivos de configuração separad
 Deixe `PG_DATABASES` e `PG_SCHEMAS` vazios para descobrir todos os bancos/schemas
 não-sistema, respeitando as exclusões. Para restringir, use listas separadas por
 vírgula. Aliases de destino precisam de um mapping: veja [validação](validacao.md).
+Se houver tabelas particionadas, `PG_SKIP_PARTITION_CHILDREN=true` valida somente
+a tabela pai (que já contém todas as linhas), em vez de cada partição filha também
+como objeto separado.
 
 Na VM GCP com Service Account, **remova ou comente** a linha
 `GOOGLE_APPLICATION_CREDENTIALS` do arquivo, inclusive se estiver vazia. Não é
