@@ -193,6 +193,8 @@ VALIDATION_MAPPING_FILE=/opt/migracao/validation-mapping.json
 | `row_difference`, `row_difference_pct` | divergência |
 | `missing_columns_json`, `extra_columns_json` | diferenças de colunas |
 | `validation_status`, `is_valid` | situação para painéis e alertas |
+| `status_description` | explicação em português do `validation_status`, pronta para exibir sem consultar este documento |
+| `fix_command` | comando pronto para corrigir a linha (remigrar a tabela, revalidar ou investigar o banco); vazio quando `is_valid=true` ou quando a correção precisa de decisão manual (ex.: colisão de destino) |
 | `error_message` | diagnóstico limitado a 4.000 caracteres |
 
 ## 8. Observações operacionais
@@ -229,6 +231,11 @@ VALIDATION_MAPPING_FILE=/opt/migracao/validation-mapping.json
   use seu valor absoluto no painel se desejar.
 - Contagem, nomes e tipos iguais não comprovam conteúdo idêntico. Alterações na
   origem durante ou depois da migração podem gerar diferenças legítimas.
+- `fix_command` monta o comando com os mesmos nomes de banco/schema/tabela já
+  presentes na linha — confira `PG_DATABASE`/porta antes de rodar em produção,
+  já que o comando não sabe se há particularidades locais na VM. Ele existe
+  para que quem olhar a tabela de histórico no BigQuery (sem estar com este
+  repositório aberto) já saia com a correção, não só o diagnóstico.
 - O Parquet é escrito atomicamente e mantém tipos numéricos estáveis mesmo se
   todas as tabelas estiverem ausentes. Contagens grandes não passam por float.
 - Aliases manuais (`PG_TABLES=origem:alias`) e `BQ_DATASET` precisam ser refletidos

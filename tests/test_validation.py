@@ -68,7 +68,24 @@ class RegressionTests(unittest.TestCase):
         row = self.validate(client)
         self.assertEqual(row.validation_status, 'DESTINATION_NOT_FOUND')
         self.assertIsNone(row.source_rows)
+        self.assertIn('migrate.py', row.fix_command)
+        self.assertIn('--tables "public.t"', row.fix_command)
+        self.assertTrue(row.status_description)
         connect.assert_not_called()
+
+    def test_suggested_fix_command_by_status(self):
+        self.assertEqual(v.suggested_fix_command('db', 'public', 't', 'OK'), '')
+        self.assertEqual(v.suggested_fix_command('db', 'public', 't', 'ESTIMATE_MATCH'), '')
+        self.assertIn('psql', v.suggested_fix_command('db', '', '', 'ERROR'))
+        self.assertIn('validate_migration.py', v.suggested_fix_command('db', 'public', 't', 'ERROR'))
+        migrate_cmd = v.suggested_fix_command('db', 'public', 't', 'SCHEMA_MISMATCH')
+        self.assertIn('migrate.py', migrate_cmd)
+        self.assertIn('--tables "public.t"', migrate_cmd)
+
+    def test_status_description_covers_every_known_status(self):
+        for status in ('OK', 'ROW_MISMATCH', 'SCHEMA_MISMATCH', 'ROW_AND_SCHEMA_MISMATCH',
+                       'DESTINATION_NOT_FOUND', 'ESTIMATE_MATCH', 'ERROR'):
+            self.assertTrue(v.status_description(status), status)
 
     @patch.object(v.psycopg2, 'connect')
     @patch.object(v, 'source_count', return_value=10)
@@ -83,6 +100,12 @@ class RegressionTests(unittest.TestCase):
         row = self.validate(client, 'metadata')
         self.assertEqual(row.validation_status, 'ESTIMATE_MATCH')
         self.assertFalse(row.is_valid)
+
+    def test_inventory_error_suggests_schema_diagnostic(self):
+        row = v.inventory_error('run', datetime.now(timezone.utc), 'db', 'project', 'inaccessible')
+        self.assertIn('psql', row.fix_command)
+        self.assertIn('"db"', row.fix_command)
+        self.assertTrue(row.status_description)
 
     def test_report_all_null_counts_has_stable_types(self):
         import pyarrow.parquet as pq

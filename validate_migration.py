@@ -59,6 +59,8 @@ class ValidationRow:
     row_status: str
     schema_status: str
     validation_status: str
+    status_description: str
+    fix_command: str
     is_valid: bool
     duration_seconds: float
     error_message: str
@@ -282,6 +284,46 @@ def target_names(
     return dataset, table
 
 
+STATUS_DESCRIPTIONS_PT = {
+    "OK": "Contagem e schema batem entre origem e destino.",
+    "ROW_MISMATCH": "A quantidade de linhas no BigQuery é diferente da origem.",
+    "SCHEMA_MISMATCH": "Colunas ausentes, extras ou com tipo diferente do esperado no BigQuery.",
+    "ROW_AND_SCHEMA_MISMATCH": "Linhas e schema divergem entre a origem e o BigQuery.",
+    "DESTINATION_NOT_FOUND": "A tabela existe na origem mas nunca foi publicada no BigQuery.",
+    "ESTIMATE_MATCH": "Contagens estimadas batem, mas isso não comprova igualdade exata (modo metadata); use --count-mode exact para confirmar.",
+    "ERROR": "Falha ao validar este objeto; veja error_message para o detalhe técnico.",
+}
+
+
+def status_description(status: str) -> str:
+    """Explicação em português do validation_status, para leitura direta na tabela do BigQuery."""
+    return STATUS_DESCRIPTIONS_PT.get(status, "")
+
+
+def suggested_fix_command(
+    database: str, schema_name: str, table_name: str, status: str
+) -> str:
+    """Comando pronto para corrigir esta linha, para copiar direto da tabela do BigQuery."""
+    if status in ("OK", "ESTIMATE_MATCH"):
+        return ""
+    if not schema_name or not table_name:
+        port = os.getenv("PG_PORT", "5432")
+        return f'sudo -u postgres psql -p {port} -d "{database}" -c "\\dn"'
+    if status == "ERROR":
+        return (
+            "sudo -u postgres env -u GOOGLE_APPLICATION_CREDENTIALS "
+            "/opt/migracao/.venv/bin/python /opt/migracao/validate_migration.py "
+            "--env-file /opt/migracao/.env.validacao "
+            f"--databases {database} --schemas {schema_name} --tables {table_name} "
+            "--count-mode exact"
+        )
+    return (
+        f'sudo -u postgres env PG_DATABASE="{database}" '
+        "/opt/migracao/.venv/bin/python /opt/migracao/migrate.py "
+        f'--tables "{schema_name}.{table_name}"'
+    )
+
+
 def validate_object(
     execution_id: str,
     validated_at: datetime,
@@ -328,6 +370,8 @@ def validate_object(
                 row_status="DESTINATION_NOT_FOUND",
                 schema_status="DESTINATION_NOT_FOUND",
                 validation_status="DESTINATION_NOT_FOUND",
+                status_description=status_description("DESTINATION_NOT_FOUND"),
+                fix_command=suggested_fix_command(database, schema_name, table_name, "DESTINATION_NOT_FOUND"),
                 is_valid=False,
                 duration_seconds=round(time.monotonic() - started, 3),
                 error_message=f"Tabela de destino não encontrada: {table_ref}",
@@ -379,6 +423,8 @@ def validate_object(
             row_status=row_status,
             schema_status=schema_status,
             validation_status=status,
+            status_description=status_description(status),
+            fix_command=suggested_fix_command(database, schema_name, table_name, status),
             is_valid=status == "OK",
             duration_seconds=round(time.monotonic() - started, 3),
             error_message="; ".join(type_errors)[:4000],
@@ -398,6 +444,8 @@ def validate_object(
             row_status="ERROR",
             schema_status="ERROR",
             validation_status="ERROR",
+            status_description=status_description("ERROR"),
+            fix_command=suggested_fix_command(database, schema_name, table_name, "ERROR"),
             is_valid=False,
             duration_seconds=round(time.monotonic() - started, 3),
             error_message=str(exc)[:4000],
@@ -416,6 +464,8 @@ def inventory_error(execution_id, validated_at, database, project, message):
         source_column_count=None, bq_column_count=None,
         missing_columns_json="[]", extra_columns_json="[]",
         row_status="ERROR", schema_status="ERROR", validation_status="ERROR",
+        status_description=status_description("ERROR"),
+        fix_command=suggested_fix_command(database, "", "", "ERROR"),
         is_valid=False, duration_seconds=0.0, error_message=message[:4000],
     )
 
@@ -547,6 +597,12 @@ def main() -> int:
                                   f"Colisão de destino: {destination}")
             row.source_schema, row.source_table = schema_name, table_name
             row.source_object_type = object_type
+            row.status_description = (
+                "Duas tabelas de origem gerariam o mesmo nome de destino; a carga foi "
+                "bloqueada antes de uma sobrescrever a outra. Corrija manualmente com um "
+                "alias explícito (PG_TABLES=origem:alias) — não há comando automático seguro."
+            )
+            row.fix_command = ""
             row.bq_dataset, row.bq_table = destination
         else:
             row = validate_object(
