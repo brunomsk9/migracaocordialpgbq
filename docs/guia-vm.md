@@ -218,6 +218,13 @@ necessário copiar uma chave JSON. A conta precisa ler as tabelas do BigQuery e
 executar jobs de consulta. Caso use uma chave JSON intencionalmente, configure
 seu caminho absoluto e garanta que `postgres` consiga ler o arquivo.
 
+Os dois scripts também tratam uma `GOOGLE_APPLICATION_CREDENTIALS` **vazia**
+herdada do shell (por exemplo, ao usar `sudo -E`) como se não estivesse
+definida — mas evite `sudo -E`: ele preserva todo o ambiente do usuário
+chamador, não só essa variável, e pode reintroduzir outras configurações
+inesperadas. Prefira `sudo -u postgres env -u GOOGLE_APPLICATION_CREDENTIALS ...`
+como nos exemplos deste guia.
+
 Ajuste as permissões após salvar:
 
 ```bash

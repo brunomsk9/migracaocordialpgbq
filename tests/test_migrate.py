@@ -18,7 +18,7 @@ from migrate import (
     CheckpointStore,
     run_with_retry,
 )
-from migration_common import reject_example_placeholder
+from migration_common import reject_example_placeholder, normalize_google_credentials_env
 
 
 class FakeCursor:
@@ -120,6 +120,27 @@ class MappingTests(unittest.TestCase):
         with patch.dict(os.environ, {"PG_SKIP_PARTITION_CHILDREN": "true"}, clear=False):
             tables = discover_tables(conn)
         self.assertEqual([t.source_table for t in tables], ["medicoes"])
+
+    def test_normalize_google_credentials_removes_empty_value(self):
+        with patch.dict(os.environ, {'GOOGLE_APPLICATION_CREDENTIALS': ''}, clear=False):
+            normalize_google_credentials_env()
+            self.assertNotIn('GOOGLE_APPLICATION_CREDENTIALS', os.environ)
+
+    def test_normalize_google_credentials_removes_whitespace_value(self):
+        with patch.dict(os.environ, {'GOOGLE_APPLICATION_CREDENTIALS': '   '}, clear=False):
+            normalize_google_credentials_env()
+            self.assertNotIn('GOOGLE_APPLICATION_CREDENTIALS', os.environ)
+
+    def test_normalize_google_credentials_keeps_real_path(self):
+        with patch.dict(os.environ, {'GOOGLE_APPLICATION_CREDENTIALS': '/caminho/chave.json'}, clear=False):
+            normalize_google_credentials_env()
+            self.assertEqual(os.environ['GOOGLE_APPLICATION_CREDENTIALS'], '/caminho/chave.json')
+
+    def test_normalize_google_credentials_noop_when_unset(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop('GOOGLE_APPLICATION_CREDENTIALS', None)
+            normalize_google_credentials_env()
+            self.assertNotIn('GOOGLE_APPLICATION_CREDENTIALS', os.environ)
 
     def test_reject_example_placeholder_detects_unedited_value(self):
         with self.assertRaisesRegex(ValueError, 'BQ_PROJECT'):

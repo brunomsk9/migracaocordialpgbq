@@ -1,4 +1,5 @@
 """Catálogo e nomes compartilhados pela migração e pela validação."""
+import os
 import re
 from contextlib import contextmanager
 
@@ -41,6 +42,18 @@ def bq_identifier(value, kind='identificador'):
     if not normalized or len(normalized) > 1024:
         raise ValueError(f'Nome de {kind} inválido após normalização: {value!r}')
     return normalized
+
+
+def normalize_google_credentials_env():
+    """Trata GOOGLE_APPLICATION_CREDENTIALS vazia como não definida.
+
+    Um `sudo -E` (ou um .env com a linha presente mas sem valor) pode deixar
+    a variável definida como string vazia; o google-auth então tenta abrir
+    um arquivo de credencial sem nome em vez de cair para a Service Account
+    da VM, e falha com "File  was not found." (nome vazio).
+    """
+    if not os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "").strip():
+        os.environ.pop("GOOGLE_APPLICATION_CREDENTIALS", None)
 
 
 def validate_bq_id(value):

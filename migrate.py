@@ -22,7 +22,7 @@ from google.cloud import bigquery
 from google.api_core.exceptions import Conflict, NotFound
 from migration_common import (OBJECTS_SQL, COLUMNS_SQL, bq_identifier,
                               reject_collisions, closing_connection, validate_bq_id,
-                              reject_example_placeholder)
+                              reject_example_placeholder, normalize_google_credentials_env)
 from psycopg2 import sql
 from psycopg2.extras import RealDictCursor
 
@@ -538,6 +538,7 @@ def main() -> int:
     env_parser.add_argument("--env-file", default=str(Path(__file__).resolve().parent / ".env"))
     env_args, _ = env_parser.parse_known_args()
     load_dotenv(env_args.env_file)
+    normalize_google_credentials_env()
     parser = argparse.ArgumentParser(description=__doc__, parents=[env_parser])
     parser.add_argument("--tables", help="Sobrescreve PG_TABLES")
     parser.add_argument("--databases", help="Bancos a migrar, separados por vírgula")

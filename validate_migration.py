@@ -26,6 +26,7 @@ from google.api_core.exceptions import NotFound
 from google.cloud import bigquery, storage
 from psycopg2 import sql
 from migration_common import (OBJECTS_SQL, bq_identifier, closing_connection,
+                               normalize_google_credentials_env,
                                reject_example_placeholder, validate_bq_id)
 from migrate import TableSpec, bq_type, csv_values, env_bool, get_columns
 
@@ -558,6 +559,7 @@ def main() -> int:
         load_dotenv(env_path, override=False)
     else:
         LOG.warning("Arquivo .env não encontrado: %s", env_path)
+    normalize_google_credentials_env()
 
     # Os defaults dependem do .env e por isso são resolvidos após load_dotenv.
     bq_project = os.getenv("BQ_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT")
