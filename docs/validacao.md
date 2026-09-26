@@ -61,6 +61,13 @@ VALIDATION_OUTPUT_DIR=/opt/migracao/validation
 VALIDATION_BQ_TABLE=seu-projeto-gcp.monitoramento.validacao_migracao
 ```
 
+`seu-projeto-gcp` acima é só exemplo: troque pelo **Project ID** real do GCP
+(não o nome de exibição) em `BQ_PROJECT` e em `VALIDATION_BQ_TABLE`, incluindo se
+passar `--bq-report-table` na linha de comando. Deixar o valor de exemplo causa
+`404 Project ... is not found` ao tentar publicar no BigQuery — o script recusa
+esse valor antes de tentar (`ValueError`), mas mais cedo é melhor que mais tarde.
+Confira com `grep BQ_PROJECT /opt/migracao/.env.validacao` se estiver em dúvida.
+
 Se a autenticação do PostgreSQL exigir senha, preencha `PG_PASSWORD`. O script
 não imprime a senha nos logs.
 

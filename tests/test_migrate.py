@@ -18,6 +18,7 @@ from migrate import (
     CheckpointStore,
     run_with_retry,
 )
+from migration_common import reject_example_placeholder
 
 
 class FakeCursor:
@@ -119,6 +120,13 @@ class MappingTests(unittest.TestCase):
         with patch.dict(os.environ, {"PG_SKIP_PARTITION_CHILDREN": "true"}, clear=False):
             tables = discover_tables(conn)
         self.assertEqual([t.source_table for t in tables], ["medicoes"])
+
+    def test_reject_example_placeholder_detects_unedited_value(self):
+        with self.assertRaisesRegex(ValueError, 'BQ_PROJECT'):
+            reject_example_placeholder('seu-projeto-gcp', 'BQ_PROJECT')
+        with self.assertRaises(ValueError):
+            reject_example_placeholder('seu-projeto-gcp.monitoramento.validacao_migracao', 'VALIDATION_BQ_TABLE')
+        self.assertEqual(reject_example_placeholder('sv-443512', 'BQ_PROJECT'), 'sv-443512')
 
     def test_table_sizes_batches_single_query(self):
         t1 = parse_tables("public.a")[0]

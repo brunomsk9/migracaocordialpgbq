@@ -49,6 +49,21 @@ def validate_bq_id(value):
     return value
 
 
+# Valor de exemplo usado em config/examples/*.example e nos guias; nunca é um
+# Project ID real. Falhar cedo aqui evita um 404 confuso vindo da API do BigQuery.
+EXAMPLE_PLACEHOLDER = "seu-projeto-gcp"
+
+
+def reject_example_placeholder(value, name):
+    """Recusa um valor de configuração ainda igual ao exemplo não editado."""
+    if value and EXAMPLE_PLACEHOLDER in value:
+        raise ValueError(
+            f"{name}={value!r} ainda usa o valor de exemplo de config/examples/*; "
+            "substitua pelo Project ID real do GCP (não o nome de exibição)."
+        )
+    return value
+
+
 def reject_collisions(pairs):
     """Recusa múltiplas origens no mesmo destino antes de escrever."""
     seen = {}

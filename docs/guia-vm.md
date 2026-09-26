@@ -197,9 +197,13 @@ VALIDATION_GCS_URI=
 VALIDATION_MAPPING_FILE=
 ```
 
-Troque `seu-projeto-gcp` pelo projeto real, a região pela região dos datasets e
-`5432` pela porta real (por exemplo `5437`). Se a VM tiver várias instâncias do
-PostgreSQL, execute uma rodada por porta, com arquivos de configuração separados.
+Troque `seu-projeto-gcp` pelo **Project ID** real do GCP (não o nome de exibição;
+confira em `gcloud config get-value project` ou no console do GCP), a região pela
+região dos datasets e `5432` pela porta real (por exemplo `5437`). Se a VM tiver
+várias instâncias do PostgreSQL, execute uma rodada por porta, com arquivos de
+configuração separados. Se `VALIDATION_BQ_TABLE` for preenchida mais tarde (seção
+3 da [validação](validacao.md)), use o mesmo Project ID — o valor de exemplo
+causa `404 Project ... is not found` do BigQuery.
 
 Deixe `PG_DATABASES` e `PG_SCHEMAS` vazios para descobrir todos os bancos/schemas
 não-sistema, respeitando as exclusões. Para restringir, use listas separadas por

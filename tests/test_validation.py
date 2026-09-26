@@ -215,6 +215,33 @@ class RegressionTests(unittest.TestCase):
         self.assertEqual(discover_tables.call_count, 2)
         migrate_table.assert_called_once()
 
+    @patch.object(m.bigquery, 'Client')
+    @patch.dict(os.environ, {'BQ_PROJECT': 'seu-projeto-gcp', 'AUTO_DISCOVER': 'false',
+                              'PG_DATABASE': 'db', 'PG_TABLES': 'public.t'}, clear=True)
+    def test_migration_rejects_placeholder_project_before_any_bq_call(self, bq_client_cls):
+        with patch('sys.argv', ['migrate.py', '--env-file', '/tmp/nonexistent-review-env']):
+            with self.assertRaisesRegex(ValueError, 'BQ_PROJECT'):
+                m.main()
+        bq_client_cls.assert_not_called()
+
+    @patch.object(v.bigquery, 'Client')
+    @patch.dict(os.environ, {'BQ_PROJECT': 'seu-projeto-gcp'}, clear=True)
+    def test_validation_rejects_placeholder_project_before_any_bq_call(self, bq_client_cls):
+        with patch('sys.argv', ['validate_migration.py', '--env-file', '/tmp/nonexistent-review-env']):
+            with self.assertRaisesRegex(ValueError, 'BQ_PROJECT'):
+                v.main()
+        bq_client_cls.assert_not_called()
+
+    @patch.object(v.bigquery, 'Client')
+    @patch.dict(os.environ, {'BQ_PROJECT': 'sv-443512'}, clear=True)
+    def test_validation_rejects_placeholder_report_table_before_any_bq_call(self, bq_client_cls):
+        argv = ['validate_migration.py', '--env-file', '/tmp/nonexistent-review-env',
+                '--bq-report-table', 'seu-projeto-gcp.monitoramento.validacao_migracao']
+        with patch('sys.argv', argv):
+            with self.assertRaisesRegex(ValueError, 'VALIDATION_BQ_TABLE'):
+                v.main()
+        bq_client_cls.assert_not_called()
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -21,7 +21,8 @@ from dotenv import load_dotenv
 from google.cloud import bigquery
 from google.api_core.exceptions import Conflict, NotFound
 from migration_common import (OBJECTS_SQL, COLUMNS_SQL, bq_identifier,
-                              reject_collisions, closing_connection, validate_bq_id)
+                              reject_collisions, closing_connection, validate_bq_id,
+                              reject_example_placeholder)
 from psycopg2 import sql
 from psycopg2.extras import RealDictCursor
 
@@ -580,7 +581,11 @@ def main() -> int:
 
     if automatic:
         reject_collisions((db, dataset_for_database(db)) for db in databases)
-    client = None if args.inventory or args.dry_run else bigquery.Client(project=required_env("BQ_PROJECT"), location=location)
+    if args.inventory or args.dry_run:
+        client = None
+    else:
+        bq_project = reject_example_placeholder(required_env("BQ_PROJECT"), "BQ_PROJECT")
+        client = bigquery.Client(project=bq_project, location=location)
     failures: list[str] = []
     checkpoint_path = Path(args.checkpoint)
     if not checkpoint_path.is_absolute():

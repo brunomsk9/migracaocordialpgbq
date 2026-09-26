@@ -25,7 +25,8 @@ from dotenv import load_dotenv
 from google.api_core.exceptions import NotFound
 from google.cloud import bigquery, storage
 from psycopg2 import sql
-from migration_common import OBJECTS_SQL, bq_identifier, closing_connection, validate_bq_id
+from migration_common import (OBJECTS_SQL, bq_identifier, closing_connection,
+                               reject_example_placeholder, validate_bq_id)
 from migrate import TableSpec, bq_type, csv_values, env_bool, get_columns
 
 
@@ -505,7 +506,10 @@ def main() -> int:
     bq_project = os.getenv("BQ_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT")
     if not bq_project:
         raise RuntimeError("Defina BQ_PROJECT no .env ou GOOGLE_CLOUD_PROJECT no ambiente")
+    reject_example_placeholder(bq_project, "BQ_PROJECT/GOOGLE_CLOUD_PROJECT")
     report_table = args.bq_report_table or os.getenv("VALIDATION_BQ_TABLE")
+    if report_table:
+        reject_example_placeholder(report_table, "--bq-report-table/VALIDATION_BQ_TABLE")
     gcs_uri = args.gcs_uri or os.getenv("VALIDATION_GCS_URI")
     count_mode = args.count_mode or os.getenv("VALIDATION_COUNT_MODE", "exact")
     if count_mode not in {"exact", "metadata"}:
