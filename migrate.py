@@ -389,9 +389,16 @@ def get_default_srid() -> int | None:
 
 
 def ensure_dataset(client: bigquery.Client, dataset_id: str, location: str) -> None:
-    dataset = bigquery.Dataset(f"{client.project}.{dataset_id}")
-    dataset.location = location
-    client.create_dataset(dataset, exists_ok=True)
+    dataset_ref = f"{client.project}.{dataset_id}"
+    try:
+        client.get_dataset(dataset_ref)
+    except NotFound:
+        # Só pede bigquery.datasets.create quando o dataset realmente não existe;
+        # uma Service Account sem essa permissão ainda consegue migrar para
+        # datasets já criados por outra conta.
+        dataset = bigquery.Dataset(dataset_ref)
+        dataset.location = location
+        client.create_dataset(dataset)
 
 
 def dataset_for_database(database: str) -> str:

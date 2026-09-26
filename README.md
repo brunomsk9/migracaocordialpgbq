@@ -76,8 +76,13 @@ PostgreSQL 2304400_fo / dm_analise.tbl_acidentes
 BigQuery   2304400_fo / dm_analise_tbl_acidentes
 ```
 
-Datasets ausentes são criados. Datasets existentes são reutilizados. Bancos
-`postgres`, `template0` e `template1`, além dos schemas internos, são ignorados.
+Datasets ausentes são criados. Datasets existentes são reutilizados — a conta de
+serviço só precisa de `bigquery.datasets.create` para os datasets que ainda não
+existem; para os já existentes, ler/gravar tabelas basta (`roles/bigquery.dataEditor`
+no dataset, por exemplo). Um erro `403 ... does not have bigquery.datasets.create
+permission` indica que o dataset daquele banco ainda não existe e a conta atual não
+pode criá-lo. Bancos `postgres`, `template0` e `template1`, além dos schemas internos,
+são ignorados.
 É possível limitar a descoberta sem listar tabelas individualmente:
 
 ```dotenv

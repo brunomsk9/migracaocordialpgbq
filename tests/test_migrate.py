@@ -2,7 +2,9 @@ import os
 import unittest
 import tempfile
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+
+from google.api_core.exceptions import NotFound
 
 from migrate import (
     Column,
@@ -12,6 +14,7 @@ from migrate import (
     default_destination_table,
     discover_databases,
     discover_tables,
+    ensure_dataset,
     expand_table_specs,
     parse_tables,
     table_sizes,
@@ -120,6 +123,21 @@ class MappingTests(unittest.TestCase):
         with patch.dict(os.environ, {"PG_SKIP_PARTITION_CHILDREN": "true"}, clear=False):
             tables = discover_tables(conn)
         self.assertEqual([t.source_table for t in tables], ["medicoes"])
+
+    def test_ensure_dataset_skips_create_when_dataset_already_exists(self):
+        client = MagicMock(project='project')
+        ensure_dataset(client, 'meu_dataset', 'US')
+        client.get_dataset.assert_called_once_with('project.meu_dataset')
+        client.create_dataset.assert_not_called()
+
+    def test_ensure_dataset_creates_only_when_missing(self):
+        client = MagicMock(project='project')
+        client.get_dataset.side_effect = NotFound('missing')
+        ensure_dataset(client, 'meu_dataset', 'US')
+        client.create_dataset.assert_called_once()
+        created = client.create_dataset.call_args.args[0]
+        self.assertEqual(created.dataset_id, 'meu_dataset')
+        self.assertEqual(created.location, 'US')
 
     def test_normalize_google_credentials_removes_empty_value(self):
         with patch.dict(os.environ, {'GOOGLE_APPLICATION_CREDENTIALS': ''}, clear=False):
