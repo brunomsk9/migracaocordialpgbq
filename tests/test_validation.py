@@ -190,6 +190,26 @@ class RegressionTests(unittest.TestCase):
             objects = v.list_objects('db', None, None)
         self.assertEqual([table for _, table, _ in objects], ['medicoes'])
 
+    def test_append_omits_schema_update_options_when_table_is_new(self):
+        client = MagicMock()
+        client.get_table.side_effect = NotFound('missing')
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'report.parquet'
+            path.write_bytes(b'fake-parquet')
+            v.append_parquet_to_bigquery(client, path, 'project.dataset.table')
+        job_config = client.load_table_from_file.call_args.kwargs['job_config']
+        self.assertIsNone(job_config.schema_update_options)
+
+    def test_append_allows_field_addition_when_table_already_exists(self):
+        client = MagicMock()
+        client.get_table.return_value = MagicMock()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'report.parquet'
+            path.write_bytes(b'fake-parquet')
+            v.append_parquet_to_bigquery(client, path, 'project.dataset.table')
+        job_config = client.load_table_from_file.call_args.kwargs['job_config']
+        self.assertEqual(job_config.schema_update_options, [v.bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION])
+
     def test_mapping_accepts_explicit_underscores(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'mapping.json'

@@ -530,13 +530,20 @@ def append_parquet_to_bigquery(
     if len(table_ref.split(".")) != 3:
         raise ValueError("--bq-report-table deve estar no formato project.dataset.table")
     ensure_dataset(client, table_ref)
+    try:
+        client.get_table(table_ref)
+        table_exists = True
+    except NotFound:
+        table_exists = False
     job_config = bigquery.LoadJobConfig(
         source_format=bigquery.SourceFormat.PARQUET,
         write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
-        # Permite que novos campos de ValidationRow sejam adicionados à tabela de
-        # histórico sem quebrar o append de execuções anteriores.
-        schema_update_options=[bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION],
     )
+    if table_exists:
+        # BigQuery recusa schemaUpdateOptions quando a tabela ainda não existe
+        # (job de carga com CREATE_IF_NEEDED); só faz sentido pedir adição de
+        # coluna quando já há um schema existente para comparar.
+        job_config.schema_update_options = [bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION]
     with local_path.open("rb") as handle:
         job = client.load_table_from_file(handle, table_ref, job_config=job_config)
     job.result()
