@@ -323,5 +323,9 @@ Para rodar em background ou publicar o relatório para o Looker, siga o
 [guia completo de validação](validacao.md). A publicação depende de configuração
 específica; é separada da opção de relatório somente local mostrada aqui.
 
+Se algum comando falhar com um erro de permissão, `404`/`403` do GCP, ou
+credencial não encontrada, veja [solução de problemas comuns](solucao-de-problemas.md)
+antes de investigar do zero — são os erros mais frequentes numa instalação nova.
+
 Referências: [instalação do Git](https://git-scm.com/book/pt-br/v2/Primeiros-Passos-Instalando-o-Git)
 e [git pull](https://git-scm.com/docs/git-pull).

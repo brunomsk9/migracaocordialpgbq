@@ -11,6 +11,7 @@ dos resultados. Para conferir tabelas já migradas, execute `validate_migration.
 ## Organização do projeto
 
 - [Validação e relatório](docs/validacao.md)
+- [Solução de problemas comuns](docs/solucao-de-problemas.md)
 - [Estrutura de pastas, commits e distribuição](docs/desenvolvimento.md)
 - [Revisão técnica](docs/revisao-2026-09-25.md)
 
