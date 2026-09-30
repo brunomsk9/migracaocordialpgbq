@@ -321,7 +321,12 @@ def select_query(table: TableSpec, columns: list[Column], default_srid: int | No
             ).format(g=geometry, srid=sql.Literal(default_srid))
         expression = sql.SQL(
             "CASE WHEN {c} IS NULL OR ST_IsEmpty({g}) THEN NULL "
-            "ELSE ST_AsText(ST_Transform(ST_MakeValid(ST_Force2D({g})), 4326)) END AS {alias}"
+            # PostGIS geometry não valida orientação de anel; o BigQuery GEOGRAPHY é
+            # esférico e exige a regra da mão direita, senão interpreta um polígono
+            # pequeno como "tudo menos ele" e recusa a carga ("overlap area larger
+            # than hemisphere"). ST_ForceRHR corrige isso por último, depois de
+            # ST_MakeValid poder ter reconstruído os anéis.
+            "ELSE ST_AsText(ST_ForceRHR(ST_Transform(ST_MakeValid(ST_Force2D({g})), 4326))) END AS {alias}"
         ).format(c=identifier, g=geometry, alias=identifier)
         expressions.append(expression)
     return sql.SQL("SELECT {fields} FROM {schema}.{table}").format(

@@ -17,6 +17,7 @@ from migrate import (
     ensure_dataset,
     expand_table_specs,
     parse_tables,
+    select_query,
     table_sizes,
     CheckpointStore,
     run_with_retry,
@@ -123,6 +124,16 @@ class MappingTests(unittest.TestCase):
         with patch.dict(os.environ, {"PG_SKIP_PARTITION_CHILDREN": "true"}, clear=False):
             tables = discover_tables(conn)
         self.assertEqual([t.source_table for t in tables], ["medicoes"])
+
+    def test_spatial_select_forces_ring_orientation_for_bigquery(self):
+        table = parse_tables("public.vias")[0]
+        columns = [Column("geom", "USER-DEFINED", "geometry", True, None, None)]
+        query = repr(select_query(table, columns, None))
+        self.assertIn("ST_ForceRHR", query)
+        # ST_ForceRHR precisa envolver o resultado de ST_MakeValid (função mais
+        # externa = último passo aplicado), já que MakeValid pode reconstruir
+        # os anéis com uma orientação diferente.
+        self.assertLess(query.index("ST_ForceRHR"), query.index("ST_MakeValid"))
 
     def test_ensure_dataset_skips_create_when_dataset_already_exists(self):
         client = MagicMock(project='project')

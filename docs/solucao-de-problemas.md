@@ -123,6 +123,43 @@ algo mais restrito, dá para criar um papel personalizado só com
 `bigquery.datasets.create` em IAM → Papéis → Criar papel, mas para uma conta
 de automação interna o `BigQuery Data Editor` já é razoável.
 
+## 5. `Could not convert JSON value to geography: ... overlap area larger than hemisphere`
+
+Sintoma (numa tabela espacial específica, geralmente com poucas linhas
+afetadas por lote):
+
+```text
+google.api_core.exceptions.BadRequest: 400 Error while reading data, error message:
+JSON table encountered too many errors, giving up. Rows: 15; errors: 1. ...
+Could not convert JSON value to geography: Multipolygon contains polygons with
+overlap area larger than hemisphere. Check if the polygon orientation is correct.
+Field: geom; Value: MULTIPOLYGON(...)
+```
+
+**Causa:** o `geometry` do PostGIS não valida a orientação dos anéis de um
+polígono (sentido horário ou anti-horário) — qualquer um dos dois é aceito
+como válido. Mas o `GEOGRAPHY` do BigQuery é esférico e exige a orientação
+correta (regra da mão direita): com o anel invertido, um polígono pequeno é
+interpretado como "todo o planeta menos ele", uma área maior que um
+hemisfério, e a carga é recusada. `ST_MakeValid`, usado para corrigir
+geometrias inválidas, também pode reconstruir os anéis sem garantir essa
+orientação.
+
+**Correção:** já corrigido no código — `migrate.py` agora aplica
+`ST_ForceRHR` como último passo antes de gerar o WKT, forçando a orientação
+correta independentemente da orientação original na origem. Atualize o
+código na VM e remigre só a tabela afetada:
+
+```bash
+sudo git -C /opt/migracao pull --ff-only origin main
+```
+
+```bash
+sudo -u postgres env PG_DATABASE="nome_do_banco" \
+  /opt/migracao/.venv/bin/python /opt/migracao/migrate.py \
+  --tables "schema.tabela"
+```
+
 ## Depois de qualquer uma dessas correções
 
 Atualize o código na VM e rode de novo:
