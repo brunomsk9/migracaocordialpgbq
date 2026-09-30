@@ -72,6 +72,14 @@ class Column:
     def is_spatial(self) -> bool:
         return self.udt_name in {"geometry", "geography"}
 
+    @property
+    def bq_name(self) -> str:
+        # PostgreSQL aceita quase qualquer nome de coluna entre aspas (com
+        # espaço, acento, parênteses, "/", ";" etc. — comum em tabelas
+        # importadas de planilha); o BigQuery recusa a carga da tabela
+        # inteira se algum nome de coluna fugir do conjunto permitido.
+        return bq_identifier(self.name, "coluna", max_length=300)
+
 
 @dataclass(frozen=True)
 class TableSpec:
@@ -300,10 +308,13 @@ def bq_type(column: Column) -> str:
 
 
 def bq_schema(columns: list[Column]) -> list[bigquery.SchemaField]:
+    # Duas colunas de nomes diferentes podem normalizar para o mesmo bq_name
+    # (ex.: "Peso Infraest." e "Peso_Infraest."); recusa antes de perder uma.
+    reject_collisions((col.name, col.bq_name) for col in columns)
     fields = []
     for col in columns:
         # Mantemos NULLABLE para que uma linha problemática não invalide a criação.
-        fields.append(bigquery.SchemaField(col.name, bq_type(col), mode="NULLABLE"))
+        fields.append(bigquery.SchemaField(col.bq_name, bq_type(col), mode="NULLABLE"))
     return fields
 
 
@@ -311,8 +322,12 @@ def select_query(table: TableSpec, columns: list[Column], default_srid: int | No
     expressions = []
     for col in columns:
         identifier = sql.Identifier(col.name)
+        # Sempre aliado ao bq_name (mesmo quando igual ao nome original) para
+        # que a linha retornada pelo PostgreSQL já saia com os nomes de chave
+        # que o schema do BigQuery espera.
+        alias = sql.Identifier(col.bq_name)
         if not col.is_spatial:
-            expressions.append(identifier)
+            expressions.append(sql.SQL("{c} AS {alias}").format(c=identifier, alias=alias))
             continue
         geometry = sql.SQL("{}::geometry").format(identifier)
         if default_srid:
@@ -336,7 +351,7 @@ def select_query(table: TableSpec, columns: list[Column], default_srid: int | No
             # direita, senão interpreta um polígono pequeno como "tudo menos ele"
             # e recusa a carga ("overlap area larger than hemisphere").
             ")) END AS {alias}"
-        ).format(c=identifier, g=geometry, p=prepared, alias=identifier)
+        ).format(c=identifier, g=geometry, p=prepared, alias=alias)
         expressions.append(expression)
     return sql.SQL("SELECT {fields} FROM {schema}.{table}").format(
         fields=sql.SQL(", ").join(expressions),
@@ -377,7 +392,9 @@ def read_batches(
     batch_size: int,
     max_rows: int = 0,
 ) -> Iterator[list[dict]]:
-    type_by_name = {col.name: bq_type(col) for col in columns}
+    # select_query() aliasa cada coluna ao bq_name; as linhas retornadas pelo
+    # cursor já vêm com essas chaves, não com o nome original do PostgreSQL.
+    type_by_name = {col.bq_name: bq_type(col) for col in columns}
     cursor_name = f"migrate_{table.source_schema}_{table.source_table}"[:60]
     with conn.cursor(name=cursor_name, cursor_factory=RealDictCursor) as cur:
         cur.itersize = batch_size

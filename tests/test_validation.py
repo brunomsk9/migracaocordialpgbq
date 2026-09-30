@@ -62,6 +62,21 @@ class RegressionTests(unittest.TestCase):
                                  'BASE TABLE', client, 'project', {'databases': {}, 'tables': {}}, mode)
 
     @patch.object(v.psycopg2, 'connect')
+    @patch.object(v, 'source_count', return_value=10)
+    @patch.object(v, 'get_columns', return_value=[m.Column('nº_boletim', 'text', 'text', True, None, None)])
+    @patch.object(v, 'bq_count', return_value=10)
+    def test_schema_comparison_uses_sanitized_column_name(self, count, columns, pg_count, connect):
+        # migrate.py grava a coluna como "n_boletim" (bq_name), não "nº_boletim"
+        # (nome literal do PostgreSQL); comparar pelo nome literal gera
+        # SCHEMA_MISMATCH falso em toda tabela com coluna fora do padrão do BQ.
+        client = MagicMock()
+        client.get_table.return_value.schema = [m.bigquery.SchemaField('n_boletim', 'STRING')]
+        row = self.validate(client)
+        self.assertEqual(row.validation_status, 'OK')
+        self.assertEqual(row.missing_columns_json, '[]')
+        self.assertEqual(row.extra_columns_json, '[]')
+
+    @patch.object(v.psycopg2, 'connect')
     def test_missing_destination_does_not_count_source(self, connect):
         client = MagicMock()
         client.get_table.side_effect = NotFound('missing')

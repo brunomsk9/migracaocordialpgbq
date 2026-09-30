@@ -221,6 +221,16 @@ genericamente a views ou tabelas sem chave estável.
 
 Arrays e tipos PostgreSQL não reconhecidos são serializados como `STRING` e registrados no log. A etapa futura BigQuery → Bucket não está incluída neste pacote.
 
+## Nomes de coluna
+
+O PostgreSQL aceita quase qualquer nome de coluna entre aspas — comum em
+tabelas importadas de planilha, com espaço, acento, parênteses, `/`, `;` etc.
+O BigQuery não aceita. Cada nome de coluna é normalizado como os nomes de
+tabela/dataset (mesma regra de `bq_identifier`, caracteres fora de
+`A-Za-z0-9_` viram `_`), com limite de 300 caracteres. Duas colunas que
+normalizem para o mesmo nome interrompem a tabela antes da carga — mesmo
+tratamento de colisão de destino já usado para tabelas/datasets.
+
 ## Teste local
 
 ```bash

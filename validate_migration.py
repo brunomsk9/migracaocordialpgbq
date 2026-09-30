@@ -381,7 +381,11 @@ def validate_object(
         with closing_connection(psycopg2.connect, **pg_params(database)) as pg_conn:
             pg_conn.set_session(isolation_level="REPEATABLE READ", readonly=True)
             columns = get_columns(pg_conn, TableSpec(schema_name, table_name, ""))
-            pg_columns = [column.name for column in columns]
+            # migrate.py grava cada coluna com o nome normalizado (bq_name), não
+            # o nome literal do PostgreSQL — comparar por column.name aqui geraria
+            # SCHEMA_MISMATCH falso em toda tabela com coluna fora do padrão do
+            # BigQuery (espaço, acento, parênteses etc.).
+            pg_columns = [column.bq_name for column in columns]
             pg_rows = source_count(pg_conn, schema_name, table_name, count_mode)
 
         bq_columns = [field.name for field in bq_meta.schema]
@@ -397,9 +401,10 @@ def validate_object(
         actual_types = {field.name: aliases.get(field.field_type, field.field_type) for field in bq_meta.schema}
         repeated = {field.name for field in bq_meta.schema if field.mode == "REPEATED"}
         type_errors = [
-            f"{col.name}: esperado {bq_type(col)}, encontrado {actual_types[col.name]}"
-            for col in columns if col.name in actual_types
-            and (bq_type(col) != actual_types[col.name] or col.name in repeated)
+            (f"{col.name} ({col.bq_name})" if col.name != col.bq_name else col.name)
+            + f": esperado {bq_type(col)}, encontrado {actual_types[col.bq_name]}"
+            for col in columns if col.bq_name in actual_types
+            and (bq_type(col) != actual_types[col.bq_name] or col.bq_name in repeated)
         ]
         schema_status = "OK" if not missing and not extra and not type_errors else "SCHEMA_MISMATCH"
         if row_status == "OK" and schema_status == "OK":

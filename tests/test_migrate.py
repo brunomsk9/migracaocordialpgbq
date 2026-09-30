@@ -9,6 +9,7 @@ from google.api_core.exceptions import NotFound
 from migrate import (
     Column,
     bq_identifier,
+    bq_schema,
     bq_type,
     dataset_for_database,
     default_destination_table,
@@ -17,6 +18,7 @@ from migrate import (
     ensure_dataset,
     expand_table_specs,
     parse_tables,
+    read_batches,
     select_query,
     table_sizes,
     CheckpointStore,
@@ -145,6 +147,50 @@ class MappingTests(unittest.TestCase):
         self.assertIn("ST_BuildArea", query)
         self.assertIn("GeometryType", query)
         self.assertIn("'POLYGON', 'MULTIPOLYGON'", query)
+
+    def test_column_bq_name_sanitizes_characters_bigquery_rejects(self):
+        # Nomes reais vistos em produção: acento+ordinal, espaço/parênteses/
+        # barra, ponto — todos rejeitados pelo BigQuery como "Invalid field name".
+        self.assertEqual(Column("nº_boletim", "text", "text", True, None, None).bq_name, "n_boletim")
+        self.assertEqual(
+            Column("SINAIS DE EMBRIAGUES (Sim/Não)", "text", "text", True, None, None).bq_name,
+            "SINAIS_DE_EMBRIAGUES_Sim_N_o",
+        )
+        self.assertEqual(Column("Peso Infraest.", "text", "text", True, None, None).bq_name, "Peso_Infraest")
+        # Nome já limpo não deve mudar.
+        self.assertEqual(Column("id", "int4", "int4", True, None, None).bq_name, "id")
+
+    def test_bq_schema_uses_sanitized_names(self):
+        columns = [Column("nº_boletim", "text", "text", True, None, None)]
+        fields = bq_schema(columns)
+        self.assertEqual(fields[0].name, "n_boletim")
+
+    def test_bq_schema_rejects_column_name_collision(self):
+        columns = [
+            Column("Peso Infraest.", "text", "text", True, None, None),
+            Column("Peso_Infraest.", "text", "text", True, None, None),
+        ]
+        with self.assertRaisesRegex(ValueError, "Colisão"):
+            bq_schema(columns)
+
+    def test_select_query_aliases_every_column_to_bq_name(self):
+        table = parse_tables("public.t")[0]
+        columns = [Column("nº_boletim", "text", "text", True, None, None)]
+        query = repr(select_query(table, columns, None))
+        self.assertIn("Identifier('nº_boletim')", query)
+        self.assertIn("Identifier('n_boletim')", query)
+
+    def test_read_batches_keys_rows_by_bq_name(self):
+        # Antes da correção, type_by_name era indexado por col.name; como a
+        # linha retornada pelo cursor vem com a chave já sanitizada (bq_name),
+        # isso derrubava com KeyError em qualquer coluna com nome "sujo".
+        table = parse_tables("public.t")[0]
+        columns = [Column("nº_boletim", "text", "text", True, None, None)]
+        conn = MagicMock()
+        cursor = conn.cursor.return_value.__enter__.return_value
+        cursor.fetchmany.side_effect = [[{"n_boletim": "ABC-123"}], []]
+        batches = list(read_batches(conn, table, columns, batch_size=10))
+        self.assertEqual(batches, [[{"n_boletim": "ABC-123"}]])
 
     def test_ensure_dataset_skips_create_when_dataset_already_exists(self):
         client = MagicMock(project='project')

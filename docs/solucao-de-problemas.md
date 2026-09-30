@@ -176,6 +176,76 @@ dessas duas. Se aparecer uma mensagem de erro do BigQuery para GEOGRAPHY
 diferente destas, mande o log — a causa provavelmente é nova e exige
 investigação específica, não é automaticamente coberta pela correção acima.
 
+## 6. `Invalid field name "..."`
+
+```text
+400 POST .../tables?prettyPrint=false: Invalid field name "nº_boletim".
+Fields must contain the allowed characters, and be at most 300 characters long.
+```
+
+**Causa:** o PostgreSQL aceita quase qualquer nome de coluna entre aspas
+(espaço, acento, parênteses, `/`, `;`, ponto etc.) — comum em tabelas
+importadas de planilha. O BigQuery não aceita. A tabela inteira falha ao
+criar se **uma só** coluna tiver um nome fora do padrão.
+
+**Correção:** já corrigida no código — cada nome de coluna é normalizado
+(mesma regra usada em nomes de tabela/dataset) antes de criar o schema e a
+consulta no PostgreSQL já devolve as linhas com essas chaves. Duas colunas
+que colidirem no nome normalizado (ex.: `"Peso Infraest."` e
+`"Peso_Infraest."` viram as duas `Peso_Infraest`) interrompem a tabela antes
+da carga, em vez de uma sobrescrever silenciosamente a outra — nesse caso
+raro, renomeie uma das colunas na origem antes de remigrar. Atualize o
+código na VM e remigre a tabela afetada:
+
+```bash
+sudo git -C /opt/migracao pull --ff-only origin main
+```
+
+```bash
+sudo -u postgres env PG_DATABASE="nome_do_banco" \
+  /opt/migracao/.venv/bin/python /opt/migracao/migrate.py \
+  --tables "schema.tabela"
+```
+
+## 7. `ST_Transform: Input geometry has unknown (0) SRID`
+
+Não é bug — é configuração ausente. Alguma tabela tem geometria sem SRID
+definido (`SRID 0`) no PostgreSQL, e `ST_Transform` se recusa a reprojetar
+sem saber de onde partir.
+
+**Correção:** defina `PG_DEFAULT_SRID` no `.env` com o SRID real da origem
+(ex.: `31983` para SIRGAS 2000 / UTM 23S, comum em dados municipais
+brasileiros — confirme o SRID correto com quem gerou os dados). Com a
+variável definida, o script assume esse SRID só para geometrias com SRID 0,
+sem alterar as que já têm SRID correto:
+
+```dotenv
+PG_DEFAULT_SRID=31983
+```
+
+## 8. `429 Exceeded rate limits: too many table update operations for this table`
+
+Não é bug — é cota do BigQuery (limite de operações de metadado por tabela
+numa janela de tempo), atingida ao processar muitas tabelas do mesmo dataset
+em sequência numa migração grande.
+
+**Correção:** normalmente basta remigrar só a(s) tabela(s) que falharam,
+depois que a janela de cota esvaziar (alguns minutos):
+
+```bash
+sudo -u postgres env PG_DATABASE="nome_do_banco" \
+  /opt/migracao/.venv/bin/python /opt/migracao/migrate.py \
+  --tables "schema.tabela"
+```
+
+Se o mesmo erro persistir com frequência, aumente o espaçamento entre
+tentativas para essa execução:
+
+```dotenv
+MAX_RETRIES=5
+RETRY_DELAY_SECONDS=5
+```
+
 ## Depois de qualquer uma dessas correções
 
 Atualize o código na VM e rode de novo:

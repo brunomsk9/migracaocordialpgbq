@@ -35,11 +35,11 @@ COLUMNS_SQL = """
 """
 
 
-def bq_identifier(value, kind='identificador'):
+def bq_identifier(value, kind='identificador', max_length=1024):
     # Preserva exatamente a convenção histórica da migração, inclusive acentos.
     normalized = re.sub(r'[^A-Za-z0-9_]', '_', value)
     normalized = re.sub(r'_+', '_', normalized).strip('_')
-    if not normalized or len(normalized) > 1024:
+    if not normalized or len(normalized) > max_length:
         raise ValueError(f'Nome de {kind} inválido após normalização: {value!r}')
     return normalized
 
