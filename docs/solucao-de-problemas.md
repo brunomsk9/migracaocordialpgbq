@@ -123,32 +123,43 @@ algo mais restrito, dá para criar um papel personalizado só com
 `bigquery.datasets.create` em IAM → Papéis → Criar papel, mas para uma conta
 de automação interna o `BigQuery Data Editor` já é razoável.
 
-## 5. `Could not convert JSON value to geography: ... overlap area larger than hemisphere`
+## 5. `Could not convert JSON value to geography` num polígono
 
-Sintoma (numa tabela espacial específica, geralmente com poucas linhas
-afetadas por lote):
+Duas mensagens diferentes, mesma família de causa: o `geometry` do PostGIS
+não garante a **estrutura** (qual anel é a casca externa) nem a
+**orientação** (sentido horário ou anti-horário) dos anéis de um polígono —
+qualquer uma das duas é aceita como válida pelo PostGIS. O `GEOGRAPHY` do
+BigQuery é esférico e exige as duas coisas corretas.
+
+### 5a. `... overlap area larger than hemisphere. Check if the polygon orientation is correct`
 
 ```text
-google.api_core.exceptions.BadRequest: 400 Error while reading data, error message:
-JSON table encountered too many errors, giving up. Rows: 15; errors: 1. ...
 Could not convert JSON value to geography: Multipolygon contains polygons with
 overlap area larger than hemisphere. Check if the polygon orientation is correct.
 Field: geom; Value: MULTIPOLYGON(...)
 ```
 
-**Causa:** o `geometry` do PostGIS não valida a orientação dos anéis de um
-polígono (sentido horário ou anti-horário) — qualquer um dos dois é aceito
-como válido. Mas o `GEOGRAPHY` do BigQuery é esférico e exige a orientação
-correta (regra da mão direita): com o anel invertido, um polígono pequeno é
-interpretado como "todo o planeta menos ele", uma área maior que um
-hemisfério, e a carga é recusada. `ST_MakeValid`, usado para corrigir
-geometrias inválidas, também pode reconstruir os anéis sem garantir essa
-orientação.
+Orientação errada: com o anel invertido, um polígono pequeno é interpretado
+como "todo o planeta menos ele" — área maior que um hemisfério.
 
-**Correção:** já corrigido no código — `migrate.py` agora aplica
-`ST_ForceRHR` como último passo antes de gerar o WKT, forçando a orientação
-correta independentemente da orientação original na origem. Atualize o
-código na VM e remigre só a tabela afetada:
+### 5b. `Polygon's first loop must be shell. It is nested in loop N`
+
+```text
+Could not convert JSON value to geography: Polygon's first loop must be shell.
+It is nested in loop 2 Field: geom; Value: MULTIPOLYGON(...)
+```
+
+Estrutura errada: o primeiro anel (que deveria ser a casca externa) está
+geometricamente dentro de outro anel (que deveria ser um buraco). `ST_MakeValid`,
+usado para corrigir geometrias inválidas, pode reconstruir os anéis sem
+garantir que o primeiro seja o externo.
+
+**Correção (cobre as duas):** já corrigida no código — `migrate.py` agora
+reconstrói a estrutura casca/buraco com `ST_BuildArea` (só em colunas cujo
+tipo original é polígono/multipolígono — em ponto/linha isso zeraria os
+dados, então não é aplicado) e corrige a orientação com `ST_ForceRHR` como
+último passo antes de gerar o WKT. Atualize o código na VM e remigre só a
+tabela afetada:
 
 ```bash
 sudo git -C /opt/migracao pull --ff-only origin main
@@ -159,6 +170,11 @@ sudo -u postgres env PG_DATABASE="nome_do_banco" \
   /opt/migracao/.venv/bin/python /opt/migracao/migrate.py \
   --tables "schema.tabela"
 ```
+
+Dados espaciais reais podem ter outras formas de geometria malformada além
+dessas duas. Se aparecer uma mensagem de erro do BigQuery para GEOGRAPHY
+diferente destas, mande o log — a causa provavelmente é nova e exige
+investigação específica, não é automaticamente coberta pela correção acima.
 
 ## Depois de qualquer uma dessas correções
 

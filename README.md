@@ -22,11 +22,13 @@ em `config/examples/`. Configurações reais ficam fora do versionamento.
 
 - Converte geometrias para EPSG:4326 no PostgreSQL.
 - Tenta corrigir geometrias inválidas com `ST_MakeValid`.
-- Corrige a orientação dos anéis com `ST_ForceRHR` (regra da mão direita):
-  `geometry` do PostGIS não valida essa orientação, mas o `GEOGRAPHY` esférico
-  do BigQuery exige — sem isso, um polígono pequeno pode ser interpretado como
-  "todo o planeta menos ele" e a carga falha com `overlap area larger than
-  hemisphere`.
+- Para colunas de polígono/multipolígono, reconstrói a estrutura casca/buraco
+  com `ST_BuildArea` antes de corrigir a orientação dos anéis com `ST_ForceRHR`
+  (regra da mão direita): `geometry` do PostGIS não garante nem a ordem
+  (casca primeiro) nem a orientação dos anéis, mas o `GEOGRAPHY` esférico do
+  BigQuery exige as duas — sem isso, a carga falha com `overlap area larger
+  than hemisphere` ou `first loop must be shell`. Colunas de ponto/linha não
+  passam por `ST_BuildArea` (ele zeraria esses dados).
 - Envia WKT ao BigQuery usando schema explícito `GEOGRAPHY`.
 - Mantém valores nulos e transforma geometrias vazias em `NULL`.
 - Se houver geometria com SRID 0, defina `PG_DEFAULT_SRID` com o SRID real de origem.

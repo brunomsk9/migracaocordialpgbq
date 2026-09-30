@@ -135,6 +135,17 @@ class MappingTests(unittest.TestCase):
         # os anéis com uma orientação diferente.
         self.assertLess(query.index("ST_ForceRHR"), query.index("ST_MakeValid"))
 
+    def test_spatial_select_rebuilds_polygon_structure_but_not_points(self):
+        table = parse_tables("public.vias")[0]
+        columns = [Column("geom", "USER-DEFINED", "geometry", True, None, None)]
+        query = repr(select_query(table, columns, None))
+        # ST_BuildArea corrige "primeiro anel deve ser o externo" (que
+        # ST_MakeValid nem sempre garante), mas só pode rodar em geometrias de
+        # área: numa coluna de ponto/linha ele zeraria os dados.
+        self.assertIn("ST_BuildArea", query)
+        self.assertIn("GeometryType", query)
+        self.assertIn("'POLYGON', 'MULTIPOLYGON'", query)
+
     def test_ensure_dataset_skips_create_when_dataset_already_exists(self):
         client = MagicMock(project='project')
         ensure_dataset(client, 'meu_dataset', 'US')
