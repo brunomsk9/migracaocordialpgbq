@@ -127,14 +127,18 @@ class MappingTests(unittest.TestCase):
             tables = discover_tables(conn)
         self.assertEqual([t.source_table for t in tables], ["medicoes"])
 
-    def test_spatial_select_forces_ring_orientation_for_bigquery(self):
+    def test_spatial_select_reverses_ring_orientation_for_bigquery(self):
         table = parse_tables("public.vias")[0]
         columns = [Column("geom", "USER-DEFINED", "geometry", True, None, None)]
         query = repr(select_query(table, columns, None))
         self.assertIn("ST_ForceRHR", query)
-        # ST_ForceRHR precisa envolver o resultado de ST_MakeValid (função mais
-        # externa = último passo aplicado), já que MakeValid pode reconstruir
-        # os anéis com uma orientação diferente.
+        self.assertIn("ST_Reverse", query)
+        # ST_Reverse precisa ser a função mais externa (envolve ST_ForceRHR, que
+        # envolve ST_MakeValid): confirmado em produção que a convenção de
+        # ST_ForceRHR do PostGIS é o oposto da que o BigQuery GEOGRAPHY espera —
+        # só normalizar com ForceRHR não muda nada quando a origem já está
+        # "correta" pelo PostGIS; é preciso inverter depois de normalizar.
+        self.assertLess(query.index("ST_Reverse"), query.index("ST_ForceRHR"))
         self.assertLess(query.index("ST_ForceRHR"), query.index("ST_MakeValid"))
 
     def test_spatial_select_rebuilds_polygon_structure_but_not_points(self):

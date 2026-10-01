@@ -154,12 +154,16 @@ geometricamente dentro de outro anel (que deveria ser um buraco). `ST_MakeValid`
 usado para corrigir geometrias inválidas, pode reconstruir os anéis sem
 garantir que o primeiro seja o externo.
 
-**Correção (cobre as duas):** já corrigida no código — `migrate.py` agora
+**Correção (cobre as duas):** já corrigida no código — `migrate.py`
 reconstrói a estrutura casca/buraco com `ST_BuildArea` (só em colunas cujo
 tipo original é polígono/multipolígono — em ponto/linha isso zeraria os
-dados, então não é aplicado) e corrige a orientação com `ST_ForceRHR` como
-último passo antes de gerar o WKT. Atualize o código na VM e remigre só a
-tabela afetada:
+dados, então não é aplicado), normaliza a orientação com `ST_ForceRHR` e,
+por fim, **inverte** o resultado com `ST_Reverse`. Esse último passo foi
+confirmado em produção: `ST_ForceRHR` sozinho não mudava o WKT de nenhuma
+linha (a geometria já estava "correta" pela convenção do PostGIS), e o
+BigQuery continuava recusando todas — ou seja, a convenção de "regra da mão
+direita" do PostGIS é o **oposto** da que o BigQuery GEOGRAPHY espera.
+Atualize o código na VM e remigre só a tabela afetada:
 
 ```bash
 sudo git -C /opt/migracao pull --ff-only origin main

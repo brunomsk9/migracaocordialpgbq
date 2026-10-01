@@ -337,7 +337,7 @@ def select_query(table: TableSpec, columns: list[Column], default_srid: int | No
         prepared = sql.SQL("ST_Transform(ST_MakeValid(ST_Force2D({g})), 4326)").format(g=geometry)
         expression = sql.SQL(
             "CASE WHEN {c} IS NULL OR ST_IsEmpty({g}) THEN NULL "
-            "ELSE ST_AsText(ST_ForceRHR("
+            "ELSE ST_AsText(ST_Reverse(ST_ForceRHR("
             # ST_MakeValid pode reconstruir os anéis de um polígono sem garantir
             # que o primeiro seja o externo (BigQuery recusa com "first loop must
             # be shell"); ST_BuildArea reconstrói a estrutura shell/buracos a
@@ -346,11 +346,14 @@ def select_query(table: TableSpec, columns: list[Column], default_srid: int | No
             # retorna NULL quando o contorno não fecha uma área).
             "CASE WHEN GeometryType({g}) IN ('POLYGON', 'MULTIPOLYGON') "
             "THEN ST_BuildArea({p}) ELSE {p} END"
-            # ST_ForceRHR corrige a orientação do anel por último: PostGIS geometry
-            # não a valida, mas o BigQuery GEOGRAPHY esférico exige a regra da mão
-            # direita, senão interpreta um polígono pequeno como "tudo menos ele"
-            # e recusa a carga ("overlap area larger than hemisphere").
-            ")) END AS {alias}"
+            # ST_ForceRHR normaliza a orientação do anel para a convenção do
+            # PostGIS, mas essa convenção é o OPOSTO da que o BigQuery GEOGRAPHY
+            # (esférico) espera — confirmado em produção: ST_ForceRHR não mudava
+            # o WKT de nenhuma linha (já estava "correta" pelo PostGIS), e o
+            # BigQuery recusava todas ("overlap area larger than hemisphere").
+            # ST_Reverse inverte o sentido de cada anel por igual (casca e
+            # buracos), preservando a estrutura shell/buraco já corrigida acima.
+            "))) END AS {alias}"
         ).format(c=identifier, g=geometry, p=prepared, alias=alias)
         expressions.append(expression)
     return sql.SQL("SELECT {fields} FROM {schema}.{table}").format(
