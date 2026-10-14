@@ -227,6 +227,21 @@ sem alterar as que já têm SRID correto:
 PG_DEFAULT_SRID=31983
 ```
 
+**Não sabe o SRID do banco?** `--detect-srid` procura um SRID já definido em
+outra coluna espacial do mesmo banco e sugere o valor — não migra nada, não
+acessa o BigQuery, só lê o PostgreSQL:
+
+```bash
+sudo -u postgres env PG_DATABASE="nome_do_banco" \
+  /opt/migracao/.venv/bin/python /opt/migracao/migrate.py --detect-srid
+```
+
+Isso é uma **suposição** (parte do princípio que todas as colunas espaciais
+do banco vêm do mesmo projeto/CRS), não uma certeza — confirme o valor
+sugerido antes de usá-lo em `PG_DEFAULT_SRID`. Se o log disser que nenhuma
+coluna do banco tem SRID definido, não há como sugerir automaticamente;
+nesse caso, só quem gerou os dados sabe o SRID correto.
+
 ## 8. `429 Exceeded rate limits: too many table update operations for this table`
 
 Cota do BigQuery (limite de operações de metadado numa janela de tempo). Se

@@ -305,6 +305,35 @@ class RegressionTests(unittest.TestCase):
         # cota de operações de metadado ao processar muitas tabelas em sequência.
         self.assertEqual(sleep_mock.call_args_list, [call(2.0), call(2.0)])
 
+    @patch.object(m, 'detect_default_srid')
+    @patch.object(m, 'migrate_table')
+    @patch.object(m, 'table_sizes')
+    @patch.object(m, 'discover_tables')
+    @patch.object(m, 'discover_databases', return_value=['online'])
+    @patch.object(m, 'postgres_connection')
+    @patch.object(m.bigquery, 'Client')
+    @patch.dict(os.environ, {'AUTO_DISCOVER': 'true'}, clear=True)
+    def test_detect_srid_flag_skips_migration_and_bigquery(
+        self, bq_client_cls, postgres_connection, discover_databases, discover_tables,
+        table_sizes, migrate_table, detect_default_srid,
+    ):
+        table = m.TableSpec('public', 't', 'public_t')
+        discover_tables.return_value = [table]
+        table_sizes.return_value = {table: 0}
+        detect_default_srid.return_value = 4674
+        postgres_connection.return_value = MagicMock()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            checkpoint = str(Path(tmp) / 'checkpoint.json')
+            with patch('sys.argv', ['migrate.py', '--env-file', '/tmp/nonexistent-review-env',
+                                     '--checkpoint', checkpoint, '--detect-srid']):
+                self.assertEqual(m.main(), 0)
+
+        detect_default_srid.assert_called_once()
+        migrate_table.assert_not_called()
+        # --detect-srid não deve nem precisar de BQ_PROJECT nem criar um client do BigQuery.
+        bq_client_cls.assert_not_called()
+
     @patch.object(m.bigquery, 'Client')
     @patch.dict(os.environ, {'BQ_PROJECT': 'seu-projeto-gcp', 'AUTO_DISCOVER': 'false',
                               'PG_DATABASE': 'db', 'PG_TABLES': 'public.t'}, clear=True)

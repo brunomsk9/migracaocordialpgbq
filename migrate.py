@@ -422,6 +422,42 @@ def get_default_srid() -> int | None:
     return int(value) if value else None
 
 
+def detect_default_srid(conn, tables: list[TableSpec], sample_size: int = 50) -> int | None:
+    """Procura um SRID já definido em outra coluna espacial do mesmo banco.
+
+    SRID 0 significa "desconhecido" — não dá para descobrir o valor certo a
+    partir da própria geometria sem SRID. Isto é uma suposição (presume que
+    todas as colunas espaciais do banco vêm do mesmo projeto/CRS), não uma
+    certeza: confira o valor antes de usá-lo em PG_DEFAULT_SRID. Devolve o
+    primeiro SRID não-zero encontrado numa amostra limitada por tabela, para
+    não variar o custo com o tamanho das tabelas.
+    """
+    for table in tables:
+        try:
+            columns = get_columns(conn, table)
+        except Exception:
+            continue
+        for col in columns:
+            if not col.is_spatial:
+                continue
+            identifier = sql.Identifier(col.name)
+            query = sql.SQL(
+                "SELECT ST_SRID({c}) FROM (SELECT {c} FROM {s}.{t} WHERE {c} IS NOT NULL LIMIT {n}) amostra "
+                "WHERE ST_SRID({c}) <> 0 LIMIT 1"
+            ).format(
+                c=identifier,
+                s=sql.Identifier(table.source_schema),
+                t=sql.Identifier(table.source_table),
+                n=sql.Literal(sample_size),
+            )
+            with conn.cursor() as cur:
+                cur.execute(query)
+                row = cur.fetchone()
+            if row:
+                return int(row[0])
+    return None
+
+
 def ensure_dataset(client: bigquery.Client, dataset_id: str, location: str) -> None:
     dataset_ref = f"{client.project}.{dataset_id}"
     try:
@@ -592,6 +628,7 @@ def main() -> int:
     parser.add_argument("--schemas", help="Schemas a migrar, separados por vírgula")
     parser.add_argument("--inventory", action="store_true", help="Lista bancos, schemas e objetos sem acessar o BigQuery")
     parser.add_argument("--dry-run", action="store_true", help="Mostra o plano, inclusive destinos, sem criar ou carregar")
+    parser.add_argument("--detect-srid", action="store_true", help="Sugere um PG_DEFAULT_SRID por banco a partir de outra coluna espacial já com SRID definido; não migra nem acessa o BigQuery")
     parser.add_argument("--fail-fast", action="store_true", default=env_bool("FAIL_FAST"), help="Interrompe no primeiro banco/tabela com erro")
     parser.add_argument("--batch-size", type=int, default=int(os.getenv("BATCH_SIZE", "5000")))
     parser.add_argument("--batch-pause", type=float, default=float(os.getenv("BATCH_PAUSE_SECONDS", "0")))
@@ -629,7 +666,7 @@ def main() -> int:
 
     if automatic:
         reject_collisions((db, dataset_for_database(db)) for db in databases)
-    if args.inventory or args.dry_run:
+    if args.inventory or args.dry_run or args.detect_srid:
         client = None
     else:
         bq_project = reject_example_placeholder(required_env("BQ_PROJECT"), "BQ_PROJECT")
@@ -670,6 +707,19 @@ def main() -> int:
                 elif args.table_order == "largest":
                     tables.sort(key=lambda item: (-sizes[item], item.source_schema, item.source_table))
                 LOG.info("Banco %s: %d tabela(s)/view(s), dataset %s", database, len(tables), dataset)
+                if args.detect_srid:
+                    detected = detect_default_srid(conn, tables)
+                    if detected:
+                        LOG.info(
+                            "Banco %s: SRID %d encontrado em outra coluna espacial — confira antes de usar "
+                            "e, se estiver certo, rode com PG_DEFAULT_SRID=%d", database, detected, detected,
+                        )
+                    else:
+                        LOG.warning(
+                            "Banco %s: nenhuma coluna espacial do banco tem SRID definido; "
+                            "não há como sugerir PG_DEFAULT_SRID automaticamente", database,
+                        )
+                    continue
                 if not tables:
                     failures.append(f"banco {database}: nenhum objeto selecionado")
                     LOG.warning("Banco %s não possui objetos selecionados", database)

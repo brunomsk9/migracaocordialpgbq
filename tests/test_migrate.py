@@ -14,6 +14,7 @@ from migrate import (
     bq_type,
     dataset_for_database,
     default_destination_table,
+    detect_default_srid,
     discover_databases,
     discover_tables,
     ensure_dataset,
@@ -152,6 +153,30 @@ class MappingTests(unittest.TestCase):
         self.assertIn("ST_BuildArea", query)
         self.assertIn("GeometryType", query)
         self.assertIn("'POLYGON', 'MULTIPOLYGON'", query)
+
+    def test_detect_default_srid_finds_first_nonzero_srid(self):
+        t1 = parse_tables("public.a")[0]
+        t2 = parse_tables("public.b")[0]
+        conn = MagicMock()
+        with patch.object(m, "get_columns") as get_columns_mock:
+            get_columns_mock.side_effect = [
+                [Column("id", "int4", "int4", True, None, None)],  # tabela a: sem coluna espacial
+                [Column("geom", "USER-DEFINED", "geometry", True, None, None)],  # tabela b: espacial
+            ]
+            conn.cursor.return_value.__enter__.return_value.fetchone.return_value = (4674,)
+            result = detect_default_srid(conn, [t1, t2])
+        self.assertEqual(result, 4674)
+        get_columns_mock.assert_any_call(conn, t2)
+
+    def test_detect_default_srid_returns_none_when_nothing_found(self):
+        t1 = parse_tables("public.a")[0]
+        conn = MagicMock()
+        with patch.object(
+            m, "get_columns", return_value=[Column("geom", "USER-DEFINED", "geometry", True, None, None)]
+        ):
+            conn.cursor.return_value.__enter__.return_value.fetchone.return_value = None
+            result = detect_default_srid(conn, [t1])
+        self.assertIsNone(result)
 
     def test_column_bq_name_sanitizes_characters_bigquery_rejects(self):
         # Nomes reais vistos em produção: acento+ordinal, espaço/parênteses/

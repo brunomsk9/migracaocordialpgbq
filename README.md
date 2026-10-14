@@ -31,7 +31,10 @@ em `config/examples/`. Configurações reais ficam fora do versionamento.
   passam por `ST_BuildArea` (ele zeraria esses dados).
 - Envia WKT ao BigQuery usando schema explícito `GEOGRAPHY`.
 - Mantém valores nulos e transforma geometrias vazias em `NULL`.
-- Se houver geometria com SRID 0, defina `PG_DEFAULT_SRID` com o SRID real de origem.
+- Se houver geometria com SRID 0, defina `PG_DEFAULT_SRID` com o SRID real de
+  origem. Não sabe qual é? `migrate.py --detect-srid` sugere um valor por
+  banco a partir de outra coluna espacial já com SRID definido (suposição, não
+  certeza — confirme antes de usar); não migra nada nem acessa o BigQuery.
 
 ## Instalação
 
@@ -157,6 +160,8 @@ python migrate.py --tables public.municipios,public.vias --batch-size 10000 --wr
 - `append`: mantém os dados existentes e acrescenta as novas linhas.
 - `--inventory`: lista o que foi descoberto sem inicializar o BigQuery.
 - `--dry-run`: mostra todos os destinos sem criar datasets/tabelas.
+- `--detect-srid`: sugere um `PG_DEFAULT_SRID` por banco a partir de outra
+  coluna espacial já com SRID definido; não migra nem acessa o BigQuery.
 - `--fail-fast`: interrompe no primeiro erro; sem ele, registra a falha e continua.
 
 ## Proteções para bases grandes
