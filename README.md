@@ -181,8 +181,12 @@ MAX_ROWS_PER_TABLE=0
 PG_STATEMENT_TIMEOUT_MS=0
 ```
 
-- `BATCH_PAUSE_SECONDS` reduz a disputa por recursos entre lotes.
-- `MAX_RETRIES` aplica novas tentativas com espera exponencial aos jobs do BQ.
+- `BATCH_PAUSE_SECONDS` reduz a disputa por recursos entre lotes e também
+  entre tabelas (útil ao migrar vários bancos com muitas tabelas pequenas na
+  mesma execução, para não bater na cota de operações de metadado do
+  BigQuery — erro `429 too many table update operations`).
+- `MAX_RETRIES` aplica novas tentativas com espera exponencial aos jobs do BQ;
+  erros de cota (`429`) usam automaticamente um piso maior de espera.
 - `MAX_TABLE_BYTES` ignora objetos acima do limite em bytes (`0` desativa).
 - `MAX_ROWS_PER_TABLE` limita linhas para testes e publica em `tabela__sample`, preservando a tabela oficial. A amostra não entra no checkpoint.
 - `TABLE_ORDER=smallest` conclui primeiro as tabelas menores.

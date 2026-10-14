@@ -229,12 +229,9 @@ PG_DEFAULT_SRID=31983
 
 ## 8. `429 Exceeded rate limits: too many table update operations for this table`
 
-Não é bug — é cota do BigQuery (limite de operações de metadado por tabela
-numa janela de tempo), atingida ao processar muitas tabelas do mesmo dataset
-em sequência numa migração grande.
-
-**Correção:** normalmente basta remigrar só a(s) tabela(s) que falharam,
-depois que a janela de cota esvaziar (alguns minutos):
+Cota do BigQuery (limite de operações de metadado numa janela de tempo). Se
+aparecer numa ou duas tabelas isoladas, normalmente basta remigrar depois que
+a janela esvaziar (alguns minutos):
 
 ```bash
 sudo -u postgres env PG_DATABASE="nome_do_banco" \
@@ -242,10 +239,16 @@ sudo -u postgres env PG_DATABASE="nome_do_banco" \
   --tables "schema.tabela"
 ```
 
-Se o mesmo erro persistir com frequência, aumente o espaçamento entre
-tentativas para essa execução:
+Se aparecer em **muitas tabelas seguidas** (comum ao rodar vários bancos na
+mesma execução, com muitas tabelas pequenas uma atrás da outra), o
+espaçamento padrão não é suficiente. `migrate.py` já trata erros `429`
+especificamente com uma espera maior (piso de 15s) e reaproveita
+`BATCH_PAUSE_SECONDS`/`--batch-pause` também **entre tabelas**, não só entre
+lotes dentro da mesma tabela — mas o padrão dessa variável é `0`. Para uma
+execução com muitos bancos/tabelas pequenas, configure um valor maior:
 
 ```dotenv
+BATCH_PAUSE_SECONDS=1
 MAX_RETRIES=5
 RETRY_DELAY_SECONDS=5
 ```

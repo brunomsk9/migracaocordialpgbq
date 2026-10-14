@@ -19,7 +19,7 @@ from uuid import UUID, uuid4
 import psycopg2
 from dotenv import load_dotenv
 from google.cloud import bigquery
-from google.api_core.exceptions import Conflict, NotFound
+from google.api_core.exceptions import Conflict, NotFound, TooManyRequests
 from migration_common import (OBJECTS_SQL, COLUMNS_SQL, bq_identifier,
                               reject_collisions, closing_connection, validate_bq_id,
                               reject_example_placeholder, normalize_google_credentials_env)
@@ -483,10 +483,16 @@ def run_with_retry(operation, retries: int, delay_seconds: float, description: s
     for attempt in range(retries + 1):
         try:
             return operation()
-        except Exception:
+        except Exception as exc:
             if attempt >= retries:
                 raise
-            wait = delay_seconds * (2 ** attempt)
+            # Cota de operações de metadado de tabela do BigQuery: o backoff padrão
+            # (poucos segundos) não esvazia a janela da cota quando muitas tabelas
+            # pequenas são processadas em sequência (ex.: vários bancos na mesma
+            # execução); usa um piso bem maior só para esse tipo de erro.
+            is_rate_limited = isinstance(exc, TooManyRequests) or "rateLimitExceeded" in str(exc)
+            base_delay = max(delay_seconds, 15.0) if is_rate_limited else delay_seconds
+            wait = base_delay * (2 ** attempt)
             LOG.warning("%s falhou; nova tentativa %d/%d em %.1fs", description, attempt + 1, retries, wait)
             time_module.sleep(wait)
 
@@ -709,6 +715,12 @@ def main() -> int:
                             raise
                     finally:
                         conn.rollback()
+                        # Mesma pausa usada entre lotes, agora também entre tabelas:
+                        # sem isso, muitas tabelas pequenas em sequência (vários
+                        # bancos numa só execução) batem na cota de operações de
+                        # metadado do BigQuery sem nenhum espaçamento.
+                        if args.batch_pause > 0:
+                            time_module.sleep(args.batch_pause)
         except Exception as exc:
             message = f"banco {database}: {exc}"
             if message not in failures:

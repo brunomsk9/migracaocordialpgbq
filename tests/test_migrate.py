@@ -4,8 +4,9 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from google.api_core.exceptions import NotFound
+from google.api_core.exceptions import NotFound, TooManyRequests
 
+import migrate as m
 from migrate import (
     Column,
     bq_identifier,
@@ -274,6 +275,29 @@ class MappingTests(unittest.TestCase):
             return "ok"
         self.assertEqual(run_with_retry(operation, 2, 0, "test"), "ok")
         self.assertEqual(len(attempts), 3)
+
+    def test_retry_uses_longer_floor_for_rate_limit_errors(self):
+        attempts = []
+        def operation():
+            attempts.append(1)
+            if len(attempts) < 2:
+                raise TooManyRequests("Exceeded rate limits: too many table update operations")
+            return "ok"
+        with patch.object(m.time_module, "sleep") as sleep_mock:
+            self.assertEqual(run_with_retry(operation, 1, 1.0, "test"), "ok")
+        # delay_seconds=1.0 pediria 1.0s; cota (429) força um piso de 15s.
+        sleep_mock.assert_called_once_with(15.0)
+
+    def test_retry_keeps_configured_delay_for_other_errors(self):
+        attempts = []
+        def operation():
+            attempts.append(1)
+            if len(attempts) < 2:
+                raise RuntimeError("transient")
+            return "ok"
+        with patch.object(m.time_module, "sleep") as sleep_mock:
+            run_with_retry(operation, 1, 1.0, "test")
+        sleep_mock.assert_called_once_with(1.0)
 
 
 if __name__ == "__main__":

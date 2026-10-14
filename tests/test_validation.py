@@ -6,7 +6,7 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pandas as pd
 from google.api_core.exceptions import Conflict, NotFound
@@ -272,6 +272,38 @@ class RegressionTests(unittest.TestCase):
 
         self.assertEqual(discover_tables.call_count, 2)
         migrate_table.assert_called_once()
+
+    @patch.object(m.time_module, 'sleep')
+    @patch.object(m, 'migrate_table')
+    @patch.object(m, 'table_sizes')
+    @patch.object(m, 'discover_tables')
+    @patch.object(m, 'discover_databases', return_value=['online'])
+    @patch.object(m, 'postgres_connection')
+    @patch.object(m.bigquery, 'Client')
+    @patch.dict(os.environ, {'BQ_PROJECT': 'project', 'AUTO_DISCOVER': 'true'}, clear=True)
+    def test_migration_pauses_between_tables_when_batch_pause_set(
+        self, bq_client_cls, postgres_connection, discover_databases, discover_tables,
+        table_sizes, migrate_table, sleep_mock
+    ):
+        t1 = m.TableSpec('public', 'a', 'public_a')
+        t2 = m.TableSpec('public', 'b', 'public_b')
+        discover_tables.return_value = [t1, t2]
+        table_sizes.return_value = {t1: 0, t2: 0}
+        migrate_table.return_value = 1
+        postgres_connection.return_value = MagicMock()
+        bq_client_cls.return_value = MagicMock(project='project')
+
+        with tempfile.TemporaryDirectory() as tmp:
+            checkpoint = str(Path(tmp) / 'checkpoint.json')
+            with patch('sys.argv', ['migrate.py', '--env-file', '/tmp/nonexistent-review-env',
+                                     '--checkpoint', checkpoint, '--batch-pause', '2']):
+                self.assertEqual(m.main(), 0)
+
+        self.assertEqual(migrate_table.call_count, 2)
+        # Mesma pausa de --batch-pause/BATCH_PAUSE_SECONDS reaproveitada entre
+        # tabelas (não só entre lotes dentro da mesma tabela), para não bater na
+        # cota de operações de metadado ao processar muitas tabelas em sequência.
+        self.assertEqual(sleep_mock.call_args_list, [call(2.0), call(2.0)])
 
     @patch.object(m.bigquery, 'Client')
     @patch.dict(os.environ, {'BQ_PROJECT': 'seu-projeto-gcp', 'AUTO_DISCOVER': 'false',
